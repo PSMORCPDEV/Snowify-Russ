@@ -61,7 +61,8 @@
     searchHistory: [],
     crossfade: 0,
     normalization: false,
-    normalizationTarget: -14
+    normalizationTarget: -14,
+    prefetchCount: 0
   };
 
   // ─── Save button SVGs ───
@@ -157,7 +158,8 @@
       searchHistory: state.searchHistory,
       crossfade: state.crossfade,
       normalization: state.normalization,
-      normalizationTarget: state.normalizationTarget
+      normalizationTarget: state.normalizationTarget,
+      prefetchCount: state.prefetchCount
     }));
     localStorage.setItem('snowify_lastSave', String(Date.now()));
     cloudSaveDebounced();
@@ -210,6 +212,7 @@
         state.crossfade = saved.crossfade ?? 0;
         state.normalization = saved.normalization ?? false;
         state.normalizationTarget = saved.normalizationTarget ?? -14;
+        state.prefetchCount = saved.prefetchCount ?? 0;
       }
       // Restore queue (local-only, separate from cloud sync)
       const savedQueue = JSON.parse(localStorage.getItem('snowify_queue'));
@@ -1186,8 +1189,11 @@
         const newAudio = engine.consumePreloaded(track.id);
         if (newAudio) audio = newAudio;
       } else {
-        showToast(`Loading: ${track.title}`);
-        const directUrl = await window.snowify.getStreamUrl(track.url, state.audioQuality);
+        const cachedPath = prefetchCache.getCachedPath(track.id);
+        if (!cachedPath) showToast(`Loading: ${track.title}`);
+        const directUrl = cachedPath
+          ? 'file://' + cachedPath
+          : await window.snowify.getStreamUrl(track.url, state.audioQuality);
         if (gen !== _playGeneration) return; // stale call — newer playTrack superseded us
         engine.setSource(directUrl);
         audio = engine.getActiveAudio();
@@ -1208,6 +1214,10 @@
       engine.resetPreloadFlag();
       // Loudness normalization: analyze + apply
       normalizer.analyzeAndApply(audio, audio.src, track.id);
+      // Prefetch upcoming tracks
+      if (state.prefetchCount !== 0) {
+        prefetchCache.onTrackChanged(state.queueIndex, state.queue);
+      }
     } catch (err) {
       if (gen !== _playGeneration) return; // stale call
       // Ignore AbortError — happens when play() is interrupted by a new load (e.g. rapid skip)
@@ -1275,6 +1285,7 @@
     state.playingPlaylistId = sourcePlaylistId;
     if (engine.isInProgress()) { engine.instantComplete(); audio = engine.getActiveAudio(); }
     engine.clearPreload();
+    prefetchCache.clear();
     state.originalQueue = [...tracks];
     if (state.shuffle) {
       const picked = tracks[index];
@@ -1385,6 +1396,7 @@
       const newTracks = pool.slice(0, Math.max(maxAdd, 10));
 
       state.queue.push(...newTracks);
+      if (state.prefetchCount !== 0) prefetchCache.onTrackChanged(state.queueIndex, state.queue);
 
       if (silent) {
         renderQueue();
@@ -1501,6 +1513,11 @@
         renderQueue();
         saveState();
         normalizer.analyzeAndApply(audio, audio.src, evt.track.id);
+        if (state.prefetchCount !== 0) {
+          const prev = state.queue[state.queueIndex - 1];
+          if (prev) prefetchCache.onTrackFinished(prev.id);
+          prefetchCache.onTrackChanged(state.queueIndex, state.queue);
+        }
         break;
       case 'gapless-play-failed':
         playNext();
@@ -1527,6 +1544,11 @@
           if (!cached || cached.partial) {
             normalizer.startMeasurement(audio, evt.track.id);
           }
+        }
+        if (state.prefetchCount !== 0) {
+          const prev = state.queue[state.queueIndex - 1];
+          if (prev) prefetchCache.onTrackFinished(prev.id);
+          prefetchCache.onTrackChanged(state.queueIndex, state.queue);
         }
         break;
       }
@@ -1576,7 +1598,14 @@
   // ─── Initialize dual-audio engine ───
   engine = window.DualAudioEngine(audioA, audioB, {
     getState: () => state,
-    getStreamUrl: (url, q) => window.snowify.getStreamUrl(url, q),
+    getStreamUrl: async (url, q) => {
+      const videoId = url.includes('watch?v=') ? new URL(url).searchParams.get('v') : null;
+      if (videoId) {
+        const cached = prefetchCache.getCachedPath(videoId);
+        if (cached) return 'file://' + cached;
+      }
+      return window.snowify.getStreamUrl(url, q);
+    },
     onTransition: handleEngineTransition,
     onTimeUpdate: handleEngineTimeUpdate,
     onStall: () => { showToast('Stream stalled — skipping to next'); playNext(); },
@@ -1591,6 +1620,17 @@
     normalizer.initAudioContext(); // async — resolves before first playTrack
   }
 
+  // ─── Initialize prefetch cache ───
+  const prefetchCache = window.PrefetchCache({
+    getState: () => state,
+    downloadAudio: (url, q, id) => window.snowify.downloadAudio(url, q, id),
+    deleteCachedAudio: (p) => window.snowify.deleteCachedAudio(p),
+    clearCache: () => window.snowify.clearAudioCache(),
+    cancelDownload: () => window.snowify.cancelDownload(),
+  });
+  if (state.prefetchCount !== 0) {
+    prefetchCache.setCount(state.prefetchCount);
+  }
   $('#btn-play-pause').addEventListener('click', togglePlay);
   $('#btn-next').addEventListener('click', playNext);
   $('#btn-prev').addEventListener('click', playPrev);
@@ -1617,6 +1657,7 @@
         state.queueIndex = idx >= 0 ? idx : 0;
       }
       engine.clearPreload();
+      prefetchCache.clear();
       renderQueue();
     }
 
@@ -2482,6 +2523,7 @@
     engine.clearPreload();
     showToast(existIdx !== -1 ? 'Moved to play next' : 'Added to play next');
     renderQueue();
+    if (state.prefetchCount !== 0) prefetchCache.onTrackChanged(state.queueIndex, state.queue);
   }
 
   function handleAddToQueue(track) {
@@ -2491,6 +2533,7 @@
       state.queue.push(track);
       showToast('Added to queue');
       renderQueue();
+      if (state.prefetchCount !== 0) prefetchCache.onTrackChanged(state.queueIndex, state.queue);
     }
   }
 
@@ -5318,7 +5361,8 @@
         country: state.country,
         crossfade: state.crossfade,
         normalization: state.normalization,
-        normalizationTarget: state.normalizationTarget
+        normalizationTarget: state.normalizationTarget,
+        prefetchCount: state.prefetchCount
       };
       const result = await window.snowify.cloudSave(data);
       if (result?.error) console.error('Cloud save failed:', result.error);
@@ -5356,6 +5400,7 @@
       state.crossfade = cloud.crossfade ?? state.crossfade;
       state.normalization = cloud.normalization ?? state.normalization;
       state.normalizationTarget = cloud.normalizationTarget ?? state.normalizationTarget;
+      state.prefetchCount = cloud.prefetchCount ?? state.prefetchCount;
       // Pause cloud save so saveState() doesn't push old data back up
       _cloudSyncPaused = true;
       saveState();
@@ -5393,6 +5438,7 @@
       const ntr = $('#normalization-target-row'); if (ntr) ntr.classList.toggle('hidden', !state.normalization);
       const nts = $('#setting-normalization-target'); if (nts) nts.value = String(state.normalizationTarget);
       if (typeof normalizer !== 'undefined') { normalizer.setEnabled(state.normalization); normalizer.setTarget(state.normalizationTarget); }
+      const pfc = $('#setting-prefetch-count'); if (pfc) pfc.value = String(state.prefetchCount);
       document.documentElement.classList.toggle('no-animations', !state.animations);
       document.documentElement.classList.toggle('no-effects', !state.effects);
       engine.applyVolume(state.volume);
@@ -5491,7 +5537,8 @@
       country: state.country,
       crossfade: state.crossfade,
       normalization: state.normalization,
-      normalizationTarget: state.normalizationTarget
+      normalizationTarget: state.normalizationTarget,
+      prefetchCount: state.prefetchCount
     };
     const result = await window.snowify.cloudSave(data);
     if (result?.error) console.error('Cloud save failed:', result.error);
@@ -5500,6 +5547,7 @@
 
   // Flush any pending saves before the window closes
   window.snowify.onBeforeClose(async () => {
+    prefetchCache.destroy();
     _flushSaveState(); // flush debounced localStorage write
     if (_cloudSaveTimeout) {
       clearTimeout(_cloudSaveTimeout);
@@ -5892,6 +5940,7 @@
     qualitySelect.addEventListener('change', () => {
       state.audioQuality = qualitySelect.value;
       normalizer.clearCache();
+      prefetchCache.clear();
       saveState();
     });
 
@@ -5970,6 +6019,23 @@
       const track = state.queue[state.queueIndex];
       if (track && state.normalization) {
         normalizer.applyGain(audio, track.id);
+      }
+      saveState();
+    });
+
+    // ─── Prefetch cache settings ───
+    const prefetchSelect = $('#setting-prefetch-count');
+    prefetchSelect.value = String(state.prefetchCount);
+    prefetchSelect.addEventListener('change', () => {
+      const val = parseInt(prefetchSelect.value, 10);
+      state.prefetchCount = val;
+      if (val === 0) {
+        prefetchCache.clear();
+      } else {
+        prefetchCache.setCount(val);
+        if (state.queue.length && state.queueIndex >= 0) {
+          prefetchCache.onTrackChanged(state.queueIndex, state.queue);
+        }
       }
       saveState();
     });

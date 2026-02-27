@@ -439,6 +439,20 @@
                 <option value="-23">-23 LUFS (EBU R128)</option>
               </select>
             </div>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-label">Prefetch cache <span class="experimental-tag">EXPERIMENTAL</span></span>
+                <span class="setting-desc">Pre-download upcoming tracks for uninterrupted playback</span>
+              </div>
+              <select class="setting-select" id="setting-prefetch-count">
+                <option value="0">Off</option>
+                <option value="1">1 track</option>
+                <option value="3">3 tracks</option>
+                <option value="5">5 tracks</option>
+                <option value="10">10 tracks</option>
+                <option value="-1">Entire queue</option>
+              </select>
+            </div>
           </div>
           <div class="settings-group">
             <h3>Video</h3>
@@ -947,6 +961,7 @@
   <audio id="audio-player-b" preload="auto" crossorigin="anonymous"></audio>
   <script src="crossfade-engine.js"></script>
   <script src="loudness-normalizer.js"></script>
+  <script src="prefetch-cache.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

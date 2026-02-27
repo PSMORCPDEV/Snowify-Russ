@@ -1636,7 +1636,7 @@
   }
   prefetchCache.onCacheUpdateCb((trackId) => {
     document.querySelectorAll(`.queue-item[data-track-id="${trackId}"] .queue-item-artist`).forEach(el => {
-      if (!el.querySelector('.queue-cached-icon')) {
+      if (!el.querySelector('.queue-cached-dot')) {
         el.insertAdjacentHTML('afterbegin', QUEUE_CACHED_ICON);
       }
     });
@@ -2693,7 +2693,7 @@
     }
   }
 
-  const QUEUE_CACHED_ICON = '<svg class="queue-cached-icon" width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="var(--accent)"/><path d="M12 6v7.5m0 0l-3-3m3 3l3-3M7.5 17h9" stroke="var(--bg-main)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>';
+  const QUEUE_CACHED_ICON = '<span class="queue-cached-dot"></span>';
 
   function renderQueueItem(track, isActive, showRemove, queueIndex) {
     const removeHtml = showRemove ? `

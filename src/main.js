@@ -1523,7 +1523,6 @@ ipcMain.handle('yt:downloadAudio', async (_event, videoUrl, quality, videoId) =>
       '--no-warnings',
       '--no-playlist',
       '--no-check-certificates',
-      '--extract-audio',
       videoUrl
     ], { timeout: 120000 }, (err, _stdout, stderr) => {
       _activeDownloadProc = null;

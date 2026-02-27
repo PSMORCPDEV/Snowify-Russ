@@ -1630,7 +1630,17 @@
   });
   if (state.prefetchCount !== 0) {
     prefetchCache.setCount(state.prefetchCount);
+    if (state.queue.length && state.queueIndex >= 0) {
+      prefetchCache.onTrackChanged(state.queueIndex, state.queue);
+    }
   }
+  prefetchCache.onCacheUpdateCb((trackId) => {
+    document.querySelectorAll(`.queue-item[data-track-id="${trackId}"] .queue-item-artist`).forEach(el => {
+      if (!el.querySelector('.queue-cached-icon')) {
+        el.insertAdjacentHTML('afterbegin', QUEUE_CACHED_ICON);
+      }
+    });
+  });
   $('#btn-play-pause').addEventListener('click', togglePlay);
   $('#btn-next').addEventListener('click', playNext);
   $('#btn-prev').addEventListener('click', playPrev);
@@ -2683,6 +2693,8 @@
     }
   }
 
+  const QUEUE_CACHED_ICON = '<svg class="queue-cached-icon" width="14" height="14" viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="var(--accent)"/><path d="M12 6v7.5m0 0l-3-3m3 3l3-3M7.5 17h9" stroke="var(--bg-main)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>';
+
   function renderQueueItem(track, isActive, showRemove, queueIndex) {
     const removeHtml = showRemove ? `
       <button class="queue-item-remove" title="Remove from queue">
@@ -2690,12 +2702,13 @@
       </button>` : '';
     const indexAttr = queueIndex !== undefined ? ` data-queue-index="${queueIndex}"` : '';
     const draggable = showRemove ? ' draggable="true"' : '';
+    const cached = state.prefetchCount !== 0 && prefetchCache.getCachedPath(track.id);
     return `
       <div class="queue-item ${isActive ? 'active' : ''}" data-track-id="${track.id}"${indexAttr}${draggable}>
         <img src="${escapeHtml(track.thumbnail)}" alt="" />
         <div class="queue-item-info">
           <div class="queue-item-title">${escapeHtml(track.title)}</div>
-          <div class="queue-item-artist">${renderArtistLinks(track)}</div>
+          <div class="queue-item-artist">${cached ? QUEUE_CACHED_ICON : ''}${renderArtistLinks(track)}</div>
         </div>
         ${removeHtml}
       </div>`;
@@ -5439,6 +5452,13 @@
       const nts = $('#setting-normalization-target'); if (nts) nts.value = String(state.normalizationTarget);
       if (typeof normalizer !== 'undefined') { normalizer.setEnabled(state.normalization); normalizer.setTarget(state.normalizationTarget); }
       const pfc = $('#setting-prefetch-count'); if (pfc) pfc.value = String(state.prefetchCount);
+      if (typeof prefetchCache !== 'undefined') {
+        if (state.prefetchCount === 0) { prefetchCache.clear(); }
+        else {
+          prefetchCache.setCount(state.prefetchCount);
+          if (state.queue.length && state.queueIndex >= 0) prefetchCache.onTrackChanged(state.queueIndex, state.queue);
+        }
+      }
       document.documentElement.classList.toggle('no-animations', !state.animations);
       document.documentElement.classList.toggle('no-effects', !state.effects);
       engine.applyVolume(state.volume);

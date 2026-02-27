@@ -15,6 +15,7 @@ window.PrefetchCache = function PrefetchCache(opts) {
   'use strict';
 
   const { getState, downloadAudio, deleteCachedAudio, clearCache, cancelDownload } = opts;
+  let _onCacheUpdate = null;
 
   // ─── Internal state ───
   const _cache = new Map(); // videoId → { path: string, status: 'ready'|'downloading' }
@@ -80,6 +81,11 @@ window.PrefetchCache = function PrefetchCache(opts) {
   /** Update the prefetch count (0 = off, N = tracks ahead) */
   function setCount(n) {
     _prefetchCount = n;
+  }
+
+  /** Register callback for when a track finishes downloading */
+  function onCacheUpdateCb(fn) {
+    _onCacheUpdate = fn;
   }
 
   /** Cancel all downloads and delete all cached files */
@@ -150,6 +156,7 @@ window.PrefetchCache = function PrefetchCache(opts) {
         // Verify the entry still exists (might have been evicted)
         if (_cache.has(videoId)) {
           _cache.set(videoId, { path: result.path, status: 'ready' });
+          if (_onCacheUpdate) _onCacheUpdate(videoId);
         }
       } catch (err) {
         // 'cancelled' is expected when evicted — anything else is a real error
@@ -165,5 +172,5 @@ window.PrefetchCache = function PrefetchCache(opts) {
     _isDownloading = false;
   }
 
-  return { getCachedPath, onTrackChanged, onTrackFinished, setCount, clear, destroy };
+  return { getCachedPath, onTrackChanged, onTrackFinished, setCount, onCacheUpdateCb, clear, destroy };
 };

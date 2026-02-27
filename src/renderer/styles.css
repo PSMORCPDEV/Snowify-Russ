@@ -1664,8 +1664,14 @@ html, body {
   text-overflow: ellipsis;
 }
 .queue-item-artist {
+  display: flex;
+  align-items: center;
+  gap: 4px;
   font-size: 12px;
   color: var(--text-subdued);
+}
+.queue-cached-icon {
+  flex-shrink: 0;
 }
 .queue-item.active { background: var(--accent-dim); }
 .queue-item.active .queue-item-title { color: var(--accent); }

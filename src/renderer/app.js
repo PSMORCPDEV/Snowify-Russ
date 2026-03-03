@@ -61,7 +61,8 @@
     searchHistory: [],
     crossfade: 0,
     normalization: false,
-    normalizationTarget: -14
+    normalizationTarget: -14,
+    showListeningActivity: true
   };
 
   // ─── Save button SVGs ───
@@ -157,7 +158,8 @@
       searchHistory: state.searchHistory,
       crossfade: state.crossfade,
       normalization: state.normalization,
-      normalizationTarget: state.normalizationTarget
+      normalizationTarget: state.normalizationTarget,
+      showListeningActivity: state.showListeningActivity
     }));
     localStorage.setItem('snowify_lastSave', String(Date.now()));
     cloudSaveDebounced();
@@ -1458,19 +1460,68 @@
   // ─── Social Activity Presence ───
 
   function updateSocialPresence(track) {
-    if (!_cloudUser || !track) return;
+    if (!_cloudUser || !track || !state.showListeningActivity) return;
     window.snowify.updateSocialPresence({
       trackTitle: track.title || '',
       trackArtist: track.artist || '',
       trackThumbnail: track.thumbnail || '',
       trackId: track.id || '',
-      isPlaying: true
+      isPlaying: true,
+      isOnline: true
     });
   }
 
   function clearSocialPresence() {
     if (!_cloudUser) return;
-    window.snowify.clearSocialPresence();
+    // Keep track info visible (paused state) — only mark not playing
+    window.snowify.updateSocialPresence({ isPlaying: false, isOnline: true });
+  }
+
+  // Set online presence when app is active (even if not playing)
+  function setOnlinePresence() {
+    if (!_cloudUser || !state.showListeningActivity) return;
+    // Only set online — don't overwrite isPlaying if already playing
+    window.snowify.updateSocialPresence({ isOnline: true });
+  }
+
+  function onListeningActivityToggled() {
+    if (!state.showListeningActivity) clearSocialPresence();
+  }
+
+  async function syncPublicPlaylists() {
+    if (!_cloudUser) return;
+    const publicPlaylists = await Promise.all(
+      state.playlists
+        .filter(p => p.isPublic)
+        .map(async p => {
+          let cover = null;
+          if (p.coverImage) {
+            // Convert local file to data URI so friends can see it
+            cover = await window.snowify.readImage(p.coverImage).catch(() => null);
+          }
+          // Include first 4 track thumbnails for auto-generated covers
+          const thumbs = (!cover && p.tracks.length > 0)
+            ? p.tracks.slice(0, 4).map(t => t.thumbnail)
+            : [];
+          // Include lightweight track data so friends can view/play
+          const tracks = p.tracks.map(t => ({
+            id: t.id,
+            title: t.title,
+            artist: t.artist,
+            thumbnail: t.thumbnail,
+            duration: t.duration || 0,
+          }));
+          return {
+            id: p.id,
+            name: p.name,
+            trackCount: p.tracks.length,
+            coverImage: cover,
+            thumbnails: thumbs,
+            tracks,
+          };
+        })
+    );
+    await window.snowify.savePublicPlaylists(publicPlaylists);
   }
 
   function togglePlay() {
@@ -2290,14 +2341,22 @@
       heroCover.style.background = hasCover ? '' : 'linear-gradient(135deg, #450af5, #8e2de2)';
     }
 
-    // Hide rename/delete/cover for Liked Songs
+    // Hide rename/delete/cover/public for Liked Songs
     const renameBtn = $('#btn-rename-playlist');
     const deleteBtn = $('#btn-delete-playlist');
     const coverBtn = $('#btn-cover-playlist');
     const exportBtn = $('#btn-export-playlist');
+    const publicBtn = $('#btn-toggle-public');
     renameBtn.style.display = isLiked ? 'none' : '';
     deleteBtn.style.display = isLiked ? 'none' : '';
     coverBtn.style.display = isLiked ? 'none' : '';
+    publicBtn.style.display = (isLiked || !_cloudUser) ? 'none' : '';
+
+    // Init public toggle state
+    if (!isLiked && _cloudUser) {
+      publicBtn.classList.toggle('btn-toggle-public-active', !!playlist.isPublic);
+      publicBtn.title = playlist.isPublic ? 'Make private' : 'Make public';
+    }
 
     if (playlist.tracks.length) {
       renderTrackList(tracksContainer, playlist.tracks, 'playlist', playlist.id);
@@ -2349,6 +2408,7 @@
       if (newName && newName !== playlist.name) {
         playlist.name = newName;
         saveState();
+        if (playlist.isPublic) syncPublicPlaylists();
         heroName.textContent = playlist.name;
         renderPlaylists();
         renderLibrary();
@@ -2359,6 +2419,16 @@
     coverBtn.onclick = async () => {
       if (isLiked) return;
       await changePlaylistCover(playlist);
+    };
+
+    publicBtn.onclick = async () => {
+      if (isLiked) return;
+      playlist.isPublic = !playlist.isPublic;
+      publicBtn.classList.toggle('btn-toggle-public-active', playlist.isPublic);
+      publicBtn.title = playlist.isPublic ? 'Make private' : 'Make public';
+      saveState();
+      showToast(playlist.isPublic ? 'Playlist is now public' : 'Playlist is now private');
+      await syncPublicPlaylists();
     };
 
     exportBtn.onclick = async () => {
@@ -2374,6 +2444,7 @@
         state.playlists = state.playlists.filter(p => p.id !== playlist.id);
         if (state.playingPlaylistId === playlist.id) state.playingPlaylistId = null;
         saveState();
+        if (playlist.isPublic) syncPublicPlaylists();
         renderPlaylists();
         renderLibrary();
         switchView('library');
@@ -5490,6 +5561,28 @@
     if (el) el.textContent = text;
   }
 
+  async function loadProfileExtras() {
+    if (!_cloudUser) return;
+    const bannerPreview = $('#profile-banner-preview');
+    const btnRemoveBanner = $('#btn-remove-banner');
+    const bioInput = $('#profile-bio-input');
+    const bioCount = $('#profile-bio-count');
+    if (!bannerPreview || !bioInput) return;
+    try {
+      const profile = await window.snowify.getProfile(_cloudUser.uid);
+      if (profile) {
+        if (profile.banner) {
+          bannerPreview.innerHTML = `<img src="${escapeHtml(profile.banner)}" alt="" draggable="false" />`;
+          btnRemoveBanner.style.display = '';
+        }
+        if (profile.bio) {
+          bioInput.value = profile.bio;
+          bioCount.textContent = `${profile.bio.length}/200`;
+        }
+      }
+    } catch (_) { /* ignore */ }
+  }
+
   function updateAccountUI(user) {
     _cloudUser = user;
     const signedOut = $('#account-signed-out');
@@ -5509,6 +5602,8 @@
         avatar.src = generateDefaultAvatar(user.displayName || user.email || 'U');
       }
       updateSyncStatus('Connected');
+      // Load profile extras (banner & bio) into settings
+      loadProfileExtras();
     } else {
       signedOut.classList.remove('hidden');
       signedIn.classList.add('hidden');
@@ -5577,7 +5672,8 @@
       country: state.country,
       crossfade: state.crossfade,
       normalization: state.normalization,
-      normalizationTarget: state.normalizationTarget
+      normalizationTarget: state.normalizationTarget,
+      showListeningActivity: state.showListeningActivity
     };
     const result = await window.snowify.cloudSave(data);
     if (result?.error) console.error('Cloud save failed:', result.error);
@@ -5587,7 +5683,10 @@
   // Flush any pending saves before the window closes
   window.snowify.onBeforeClose(async () => {
     _flushSaveState(); // flush debounced localStorage write
-    clearSocialPresence(); // clear activity status so friends don't see stale presence
+    // Fully clear presence on close — go offline and wipe track info
+    if (_cloudUser) {
+      window.snowify.clearSocialPresence();
+    }
     if (_cloudSaveTimeout) {
       clearTimeout(_cloudSaveTimeout);
       _cloudSaveTimeout = null;
@@ -5832,6 +5931,10 @@
   let _friendsPresenceMap = {};
   let _socialListening = false;
 
+  // ─── Listen Along State ───
+  let _listenAlong = null; // { hostUid, role } or null
+  let _listenAlongPendingRequest = null; // { fromUid, fromName } or null
+
   async function renderFriends() {
     const noAccount = $('#friends-no-account');
     const main = $('#friends-main');
@@ -5855,12 +5958,22 @@
     if (!_socialListening) {
       _socialListening = true;
       window.snowify.startSocialListening();
+      // Set online presence so friends see us as active
+      setOnlinePresence();
     }
+
+    // Always re-render the list from cached data on view entry
+    renderFriendsListUI();
   }
 
   // Real-time callbacks from main process
   window.snowify.onFriendsUpdated((friends) => {
     _friendsList = friends || [];
+    // Clean up presence entries for removed friends
+    const friendUids = new Set(_friendsList.map(f => f.uid));
+    for (const uid of Object.keys(_friendsPresenceMap)) {
+      if (!friendUids.has(uid)) delete _friendsPresenceMap[uid];
+    }
     renderFriendsListUI();
   });
 
@@ -5868,15 +5981,17 @@
     if (presence) _friendsPresenceMap[uid] = presence;
     else delete _friendsPresenceMap[uid];
     renderFriendsListUI();
+    // Also update the friend profile view if we're viewing this friend
+    updateProfilePresence(uid);
   });
 
   function renderFriendsListUI() {
     const container = $('#friends-list');
     const emptyState = $('#friends-list-empty');
-    if (!container || state.currentView !== 'friends') return;
+    if (!container) return;
 
     if (_friendsList.length === 0) {
-      emptyState.classList.remove('hidden');
+      if (emptyState) emptyState.classList.remove('hidden');
       container.querySelectorAll('.friend-card, .friends-section-header').forEach(el => el.remove());
       // Update online tab count
       const onlineTab = $('[data-friends-tab="online"]');
@@ -5884,15 +5999,15 @@
       return;
     }
 
-    emptyState.classList.add('hidden');
+    if (emptyState) emptyState.classList.add('hidden');
 
     // Split into online / offline, sort alphabetically within each group
     const online = [];
     const offline = [];
     _friendsList.forEach(friend => {
       const presence = _friendsPresenceMap[friend.uid];
-      const isListening = presence && presence.isPlaying && presence.trackTitle;
-      if (isListening) online.push({ friend, presence });
+      const isOnline = !!(presence && presence.isOnline);
+      if (isOnline) online.push({ friend, presence });
       else offline.push({ friend, presence });
     });
     const sortByName = (a, b) => (a.friend.displayName || '').localeCompare(b.friend.displayName || '');
@@ -5909,6 +6024,7 @@
     // Build card HTML helper
     const buildCard = ({ friend, presence }) => {
       const isListening = presence && presence.isPlaying && presence.trackTitle;
+      const isOnline = !!(presence && presence.isOnline);
       const avatarSrc = friend.photoURL || '';
       const name = escapeHtml(friend.displayName || 'User');
       const initial = (friend.displayName || 'U').charAt(0).toUpperCase();
@@ -5920,30 +6036,32 @@
       } else {
         card += `<div class="friend-avatar friend-avatar-placeholder">${initial}</div>`;
       }
-      card += `<span class="friend-status-dot ${isListening ? 'online' : 'offline'}"></span>`;
+      card += `<span class="friend-status-dot ${isOnline ? 'online' : 'offline'}"></span>`;
       card += `</div>`;
       card += `<div class="friend-info">`;
       card += `<span class="friend-name">${name}</span>`;
       if (isListening) {
         const trackTitle = escapeHtml(presence.trackTitle);
         const trackArtist = escapeHtml(presence.trackArtist || '');
-        const thumb = presence.trackThumbnail ? escapeHtml(presence.trackThumbnail) : '';
         card += `<span class="friend-activity">`;
-        if (thumb) {
-          card += `<img class="friend-activity-thumb" src="${thumb}" alt="" draggable="false" />`;
-        } else {
-          card += `<svg class="friend-activity-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55A4 4 0 1014 17V7h4V3h-6z"/></svg>`;
-        }
+        card += `<svg class="friend-activity-icon" width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55A4 4 0 1014 17V7h4V3h-6z"/></svg>`;
         card += `<span class="friend-activity-text">`;
         card += `<span class="friend-activity-title">${trackTitle}</span>`;
         if (trackArtist) card += `<span class="friend-activity-separator">by</span> <span class="friend-activity-artist">${trackArtist}</span>`;
         card += `</span>`;
         card += `</span>`;
+      } else if (isOnline) {
+        card += `<span class="friend-activity-offline">Online</span>`;
       } else {
         card += `<span class="friend-activity-offline">Offline</span>`;
       }
       card += `</div>`;
       card += `<div class="friend-actions">`;
+      if (isOnline && !_listenAlong) {
+        card += `<button class="friend-action-btn friend-listen-along-btn" title="Request to listen along" data-uid="${escapeHtml(friend.uid)}" data-name="${name}">`;
+        card += `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18v-6a9 9 0 0118 0v6"/><path d="M21 19a2 2 0 01-2 2h-1a2 2 0 01-2-2v-3a2 2 0 012-2h3zM3 19a2 2 0 002 2h1a2 2 0 002-2v-3a2 2 0 00-2-2H3z"/></svg>`;
+        card += `</button>`;
+      }
       card += `<button class="friend-action-btn friend-remove-btn" title="Remove friend" data-uid="${escapeHtml(friend.uid)}">`;
       card += `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>`;
       card += `</button>`;
@@ -5954,14 +6072,14 @@
 
     let html = '';
     if (activeTab === 'online') {
-      html += `<div class="friends-section-header">Listening — ${online.length}</div>`;
+      html += `<div class="friends-section-header">Online — ${online.length}</div>`;
       online.forEach(item => { html += buildCard(item); });
       if (online.length === 0) {
-        html += `<div class="friends-list-empty"><p>No friends are listening right now.</p></div>`;
+        html += `<div class="friends-list-empty"><p>No friends are online right now.</p></div>`;
       }
     } else {
       if (online.length > 0) {
-        html += `<div class="friends-section-header">Listening — ${online.length}</div>`;
+        html += `<div class="friends-section-header">Online — ${online.length}</div>`;
         online.forEach(item => { html += buildCard(item); });
       }
       if (offline.length > 0) {
@@ -5970,12 +6088,13 @@
       }
     }
 
-    container.querySelectorAll('.friend-card, .friends-section-header, .friends-list-empty').forEach(el => el.remove());
+    container.querySelectorAll('.friend-card, .friends-section-header, .friends-list-empty:not(#friends-list-empty)').forEach(el => el.remove());
     container.insertAdjacentHTML('beforeend', html);
 
     // Attach remove handlers
     container.querySelectorAll('.friend-remove-btn').forEach(btn => {
-      btn.addEventListener('click', async () => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
         const uid = btn.dataset.uid;
         const friendName = _friendsList.find(f => f.uid === uid)?.displayName || 'this friend';
         if (!confirm(`Remove ${friendName} from your friends?`)) return;
@@ -5988,6 +6107,292 @@
         }
       });
     });
+
+    // Attach listen-along invite handlers on friend cards
+    container.querySelectorAll('.friend-listen-along-btn').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const uid = btn.dataset.uid;
+        const name = btn.dataset.name;
+        btn.disabled = true;
+        const result = await window.snowify.requestListenAlong(uid);
+        if (result?.success) {
+          showToast(`Listen along request sent to ${name}`);
+        } else {
+          showToast(result?.error || 'Failed to send request');
+        }
+        btn.disabled = false;
+      });
+    });
+
+    // Attach card click → open profile
+    container.querySelectorAll('.friend-card').forEach(card => {
+      card.style.cursor = 'pointer';
+      card.addEventListener('click', (e) => {
+        if (e.target.closest('.friend-remove-btn') || e.target.closest('.friend-listen-along-btn')) return;
+        const uid = card.dataset.friendUid;
+        if (uid) showFriendProfile(uid);
+      });
+    });
+  }
+
+  // Live-update the friend profile view when presence changes
+  function updateProfilePresence(uid) {
+    const profileView = $('#view-profile');
+    if (!profileView || !profileView.classList.contains('active')) return;
+    const btn = $('#profile-listen-along');
+    if (!btn || btn.dataset.friendUid !== uid) return;
+
+    const presence = _friendsPresenceMap[uid];
+    const isListening = presence && presence.isPlaying && presence.trackTitle;
+    const isOnline = !!(presence && presence.isOnline);
+
+    // Update status text
+    const statusEl = $('#profile-status');
+    statusEl.textContent = isListening ? 'Listening now' : isOnline ? 'Online' : 'Offline';
+    statusEl.className = `artist-followers ${isListening ? 'listening' : isOnline ? 'online' : ''}`;
+
+    // Update listen along button visibility
+    updateProfileListenAlongButton();
+
+    // Update "Currently Listening" section
+    const listeningSection = $('#profile-listening-section');
+    const listeningContainer = $('#profile-listening');
+    if (isListening) {
+      listeningSection.style.display = '';
+      const thumb = presence.trackThumbnail ? escapeHtml(presence.trackThumbnail) : '';
+      const title = escapeHtml(presence.trackTitle || '');
+      const artist = escapeHtml(presence.trackArtist || '');
+      listeningContainer.innerHTML = `
+        <div class="profile-listening-card" data-track-id="${escapeHtml(presence.trackId || '')}">
+          ${thumb ? `<img class="profile-listening-thumb" src="${thumb}" alt="" />` : ''}
+          <div class="profile-listening-info">
+            <div class="profile-listening-title">${title}</div>
+            ${artist ? `<div class="profile-listening-artist">${artist}</div>` : ''}
+          </div>
+          <div class="profile-listening-eq"><span></span><span></span><span></span><span></span></div>
+        </div>`;
+      const card = listeningContainer.querySelector('.profile-listening-card');
+      if (card && presence.trackId) {
+        card.style.cursor = 'pointer';
+        card.addEventListener('click', () => {
+          playFromList([{ id: presence.trackId, title: presence.trackTitle, artist: presence.trackArtist, thumbnail: presence.trackThumbnail || '' }], 0);
+        });
+      }
+    } else {
+      listeningSection.style.display = 'none';
+      listeningContainer.innerHTML = '';
+    }
+  }
+
+  // ── Friend Profile View ──
+  async function showFriendProfile(uid) {
+    switchView('profile');
+
+    const bannerEl = $('#profile-banner');
+    const bannerImg = $('#profile-banner-img');
+    const avatarEl = $('#profile-avatar-img');
+    const labelEl = $('#profile-label');
+    const nameEl = $('#profile-name');
+    const statusEl = $('#profile-status');
+    const bioSection = $('#profile-bio-section');
+    const bioText = $('#profile-bio-text');
+    const listeningSection = $('#profile-listening-section');
+    const listeningContainer = $('#profile-listening');
+    const playlistsSection = $('#profile-playlists-section');
+    const playlistsContainer = $('#profile-playlists');
+
+    // Find friend info from cached list
+    const friend = _friendsList.find(f => f.uid === uid);
+    const presence = _friendsPresenceMap[uid];
+    const isListening = presence && presence.isPlaying && presence.trackTitle;
+    const isOnline = !!(presence && presence.isOnline);
+
+    // Reset everything
+    bannerEl.style.display = 'none';
+    bannerImg.src = '';
+    avatarEl.src = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
+    avatarEl.classList.remove('loaded');
+    avatarEl.classList.add('shimmer');
+    labelEl.textContent = 'FRIEND';
+    nameEl.textContent = friend?.displayName || 'User';
+    statusEl.textContent = isListening ? 'Listening now' : isOnline ? 'Online' : 'Offline';
+    statusEl.className = `artist-followers ${isListening ? 'listening' : isOnline ? 'online' : ''}`;
+    bioSection.style.display = 'none';
+
+    // Listen Along button (show if friend is online and we're not in a session)
+    const listenAlongBtn = $('#profile-listen-along');
+    listenAlongBtn.dataset.friendUid = uid;
+    listenAlongBtn.disabled = false;
+    listenAlongBtn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55A4 4 0 1014 17V7h4V3h-6z"/></svg> Request to Listen`;
+    if (isOnline && !_listenAlong) {
+      listenAlongBtn.classList.remove('hidden');
+    } else {
+      listenAlongBtn.classList.add('hidden');
+    }
+    bioText.textContent = '';
+    listeningSection.style.display = 'none';
+    listeningContainer.innerHTML = '';
+    playlistsSection.style.display = 'none';
+    playlistsContainer.innerHTML = '';
+
+    // Set avatar from cache immediately
+    if (friend?.photoURL) {
+      avatarEl.addEventListener('load', () => {
+        avatarEl.classList.remove('shimmer');
+        avatarEl.classList.add('loaded');
+      }, { once: true });
+      avatarEl.src = friend.photoURL;
+    } else {
+      avatarEl.classList.remove('shimmer');
+      avatarEl.classList.add('loaded');
+    }
+
+    // Show "Currently Listening" section
+    if (isListening) {
+      listeningSection.style.display = '';
+      const thumb = presence.trackThumbnail ? escapeHtml(presence.trackThumbnail) : '';
+      const title = escapeHtml(presence.trackTitle || '');
+      const artist = escapeHtml(presence.trackArtist || '');
+      listeningContainer.innerHTML = `
+        <div class="profile-listening-card" data-track-id="${escapeHtml(presence.trackId || '')}">
+          ${thumb ? `<img class="profile-listening-thumb" src="${thumb}" alt="" />` : ''}
+          <div class="profile-listening-info">
+            <div class="profile-listening-title">${title}</div>
+            ${artist ? `<div class="profile-listening-artist">${artist}</div>` : ''}
+          </div>
+          <div class="profile-listening-eq"><span></span><span></span><span></span><span></span></div>
+        </div>`;
+      const card = listeningContainer.querySelector('.profile-listening-card');
+      if (card && presence.trackId) {
+        card.style.cursor = 'pointer';
+        card.addEventListener('click', () => {
+          const track = {
+            id: presence.trackId,
+            title: presence.trackTitle,
+            artist: presence.trackArtist,
+            thumbnail: presence.trackThumbnail || '',
+          };
+          playFromList([track], 0);
+        });
+      }
+    }
+
+    // Fetch profile extras + public playlists in parallel
+    const [profile, publicPlaylists] = await Promise.all([
+      window.snowify.getProfile(uid).catch(() => null),
+      window.snowify.getPublicPlaylists(uid).catch(() => []),
+    ]);
+
+    // Update avatar from fetched profile (more up-to-date)
+    if (profile?.photoURL) {
+      avatarEl.addEventListener('load', () => {
+        avatarEl.classList.remove('shimmer');
+        avatarEl.classList.add('loaded');
+      }, { once: true });
+      avatarEl.src = profile.photoURL;
+    }
+    if (profile?.displayName) {
+      nameEl.textContent = profile.displayName;
+    }
+
+    // Banner
+    if (profile?.banner && profile.banner.startsWith('data:image/')) {
+      bannerImg.src = profile.banner;
+      bannerEl.style.display = '';
+    }
+
+    // Bio
+    if (profile?.bio) {
+      bioText.textContent = profile.bio;
+      bioSection.style.display = '';
+    }
+
+    // Public playlists as album-card scrollable row (like discography)
+    if (publicPlaylists && publicPlaylists.length > 0) {
+      playlistsSection.style.display = '';
+      playlistsContainer.innerHTML = publicPlaylists.map((pl, idx) => {
+        const name = escapeHtml(pl.name || 'Untitled');
+        const count = pl.trackCount || 0;
+        let coverHtml;
+        if (pl.coverImage) {
+          // Custom cover stored as data URI
+          coverHtml = `<img class="album-card-cover" src="${escapeHtml(pl.coverImage)}" alt="" loading="lazy" />`;
+        } else if (pl.thumbnails && pl.thumbnails.length >= 4) {
+          // Auto-generated 2×2 grid from track thumbnails
+          coverHtml = `<div class="album-card-cover playlist-cover-grid">${pl.thumbnails.slice(0, 4).map(t => `<img src="${escapeHtml(t)}" alt="" />`).join('')}</div>`;
+        } else if (pl.thumbnails && pl.thumbnails.length > 0) {
+          // Single track thumbnail
+          coverHtml = `<img class="album-card-cover" src="${escapeHtml(pl.thumbnails[0])}" alt="" loading="lazy" />`;
+        } else {
+          coverHtml = `<div class="album-card-cover" style="display:flex;align-items:center;justify-content:center;background:var(--bg-highlight);aspect-ratio:1;border-radius:var(--radius);"><svg width="32" height="32" viewBox="0 0 24 24" fill="var(--text-subdued)" opacity="0.4"><path d="M15 6H3v2h12V6zm0 4H3v2h12v-2zM3 16h8v-2H3v2zM17 6v8.18c-.31-.11-.65-.18-1-.18-1.66 0-3 1.34-3 3s1.34 3 3 3 3-1.34 3-3V8h3V6h-5z"/></svg></div>`;
+        }
+        return `
+          <div class="album-card" data-playlist-idx="${escapeHtml(String(idx))}">
+            ${coverHtml}
+            <div class="album-card-name" title="${name}">${name}</div>
+            <div class="album-card-meta">${count} song${count !== 1 ? 's' : ''}</div>
+          </div>`;
+      }).join('');
+
+      // Click handler to view friend's playlist tracks
+      playlistsContainer.querySelectorAll('.album-card').forEach(card => {
+        card.addEventListener('click', () => {
+          const idx = parseInt(card.dataset.playlistIdx, 10);
+          const pl = publicPlaylists[idx];
+          if (!pl || !pl.tracks || !pl.tracks.length) return;
+          showFriendPlaylistDetail(pl, friend || { displayName: nameEl.textContent });
+        });
+      });
+    }
+  }
+
+  function showFriendPlaylistDetail(pl, friend) {
+    // Reuse the playlist detail view to show a friend's public playlist read-only
+    switchView('playlist');
+    const heroName = $('#playlist-hero-name');
+    const heroCount = $('#playlist-hero-count');
+    const heroCover = $('#playlist-hero-cover');
+    const tracksContainer = $('#playlist-tracks');
+
+    heroName.textContent = pl.name || 'Untitled';
+    const count = pl.trackCount || pl.tracks.length;
+    heroCount.innerHTML = `${count} song${count !== 1 ? 's' : ''} · <span class="friend-playlist-owner" style="cursor:pointer;color:var(--accent);">${escapeHtml(friend.displayName || 'Friend')}</span>`;
+    const ownerLink = heroCount.querySelector('.friend-playlist-owner');
+    if (ownerLink && friend.uid) {
+      ownerLink.addEventListener('click', () => showFriendProfile(friend.uid));
+    }
+
+    // Cover
+    if (pl.coverImage) {
+      heroCover.innerHTML = `<img src="${escapeHtml(pl.coverImage)}" alt="" />`;
+      heroCover.style.background = '';
+    } else if (pl.thumbnails && pl.thumbnails.length >= 4) {
+      heroCover.innerHTML = `<div class="playlist-cover-grid playlist-cover-lg">${pl.thumbnails.slice(0, 4).map(t => `<img src="${escapeHtml(t)}" alt="" />`).join('')}</div>`;
+      heroCover.style.background = '';
+    } else if (pl.thumbnails && pl.thumbnails.length > 0) {
+      heroCover.innerHTML = `<img src="${escapeHtml(pl.thumbnails[0])}" alt="" />`;
+      heroCover.style.background = '';
+    } else {
+      heroCover.innerHTML = `<svg width="64" height="64" viewBox="0 0 24 24" fill="#535353"><path d="M12 3v10.55c-.59-.34-1.27-.55-2-.55C7.79 13 6 14.79 6 17s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>`;
+      heroCover.style.background = 'linear-gradient(135deg, #450af5, #8e2de2)';
+    }
+
+    // Hide edit buttons (this is a read-only friend playlist)
+    const renameBtn = $('#btn-rename-playlist');
+    const deleteBtn = $('#btn-delete-playlist');
+    const coverBtn = $('#btn-cover-playlist');
+    const exportBtn = $('#btn-export-playlist');
+    const publicBtn = $('#btn-toggle-public');
+    if (renameBtn) renameBtn.style.display = 'none';
+    if (deleteBtn) deleteBtn.style.display = 'none';
+    if (coverBtn) coverBtn.style.display = 'none';
+    if (exportBtn) exportBtn.style.display = 'none';
+    if (publicBtn) publicBtn.style.display = 'none';
+
+    // Render tracks
+    state.currentPlaylistId = null; // Not a local playlist
+    renderTrackList(tracksContainer, pl.tracks, 'friend-playlist');
   }
 
   // Copy friend code button
@@ -6056,11 +6461,177 @@
     });
   });
 
+  // ─── Listen Along ───
+
+  // Handle incoming listen-along requests
+  window.snowify.onListenAlongRequest((data) => {
+    if (!data || !data.fromUid || !data.fromName) return;
+    // Don't show if already in a listen-along session
+    if (_listenAlong) return;
+
+    _listenAlongPendingRequest = { fromUid: data.fromUid, fromName: data.fromName };
+    const notification = $('#listen-along-notification');
+    const nameEl = $('#listen-along-req-name');
+    nameEl.textContent = data.fromName;
+    notification.classList.remove('hidden');
+
+    // Auto-dismiss after 30 seconds
+    clearTimeout(_listenAlongRequestTimeout);
+    _listenAlongRequestTimeout = setTimeout(() => {
+      dismissListenAlongRequest(false);
+    }, 30000);
+  });
+
+  let _listenAlongRequestTimeout = null;
+
+  $('#listen-along-accept').addEventListener('click', () => {
+    dismissListenAlongRequest(true);
+  });
+
+  $('#listen-along-deny').addEventListener('click', () => {
+    dismissListenAlongRequest(false);
+  });
+
+  async function dismissListenAlongRequest(accepted) {
+    clearTimeout(_listenAlongRequestTimeout);
+    const notification = $('#listen-along-notification');
+    notification.classList.add('hidden');
+
+    if (!_listenAlongPendingRequest) return;
+    const { fromUid, fromName } = _listenAlongPendingRequest;
+    _listenAlongPendingRequest = null;
+
+    const result = await window.snowify.respondListenAlong(fromUid, accepted);
+    if (accepted && result?.success) {
+      showToast(`Listening along with ${fromName}`);
+    }
+  }
+
+  // Track own presence updates (listen-along state changes)
+  window.snowify.onOwnPresenceUpdated((data) => {
+    const la = data.listenAlong || null;
+    const prevLa = _listenAlong;
+    _listenAlong = la;
+
+    const banner = $('#listen-along-banner');
+    const bannerText = $('#listen-along-banner-text');
+    const endBtn = $('#listen-along-end');
+
+    if (la) {
+      // We're in a listen-along session
+      if (la.role === 'guest') {
+        const hostFriend = _friendsList.find(f => f.uid === la.peerUid);
+        const hostName = hostFriend?.displayName || 'Friend';
+        bannerText.textContent = `Listening along with ${hostName}`;
+        endBtn.textContent = 'Leave';
+      } else {
+        const guestFriend = _friendsList.find(f => f.uid === la.peerUid);
+        const guestName = guestFriend?.displayName || 'Friend';
+        bannerText.textContent = `${guestName} is listening along`;
+        endBtn.textContent = 'End';
+      }
+      banner.classList.remove('hidden');
+
+      // Update the profile button state if viewing that friend's profile
+      updateProfileListenAlongButton();
+    } else {
+      banner.classList.add('hidden');
+
+      // If we just left a session, show toast
+      if (prevLa) {
+        showToast('Listen along session ended');
+      }
+      updateProfileListenAlongButton();
+    }
+  });
+
+  // End / Leave listen-along session
+  $('#listen-along-end').addEventListener('click', async () => {
+    await window.snowify.endListenAlong();
+    _listenAlong = null;
+    $('#listen-along-banner').classList.add('hidden');
+  });
+
+  // Guest sync: when a friend's presence updates and we're a guest,
+  // follow the host's track changes
+  window.snowify.onPresenceUpdated((data) => {
+    if (!_listenAlong || _listenAlong.role !== 'guest') return;
+    if (data.uid !== _listenAlong.peerUid) return;
+
+    const presence = data.presence;
+    if (!presence || !presence.isPlaying || !presence.trackId) return;
+
+    // Only change track if it's different from what we're playing
+    const currentTrack = state.queue[state.queueIndex];
+    if (currentTrack && currentTrack.id === presence.trackId) return;
+
+    // Play the host's track
+    const track = {
+      id: presence.trackId,
+      title: presence.trackTitle || '',
+      artist: presence.trackArtist || '',
+      thumbnail: presence.trackThumbnail || '',
+      url: `https://music.youtube.com/watch?v=${presence.trackId}`,
+    };
+    playFromList([track], 0);
+  });
+
+  // "Listen Along" button on friend profile
+  $('#profile-listen-along').addEventListener('click', async () => {
+    const uid = $('#profile-listen-along').dataset.friendUid;
+    if (!uid) return;
+    const btn = $('#profile-listen-along');
+    btn.disabled = true;
+    btn.textContent = 'Requesting...';
+    const result = await window.snowify.requestListenAlong(uid);
+    if (result?.success) {
+      showToast('Request sent!');
+      btn.textContent = 'Request Sent';
+      setTimeout(() => {
+        btn.disabled = false;
+        btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55A4 4 0 1014 17V7h4V3h-6z"/></svg> Request to Listen`;
+      }, 5000);
+    } else {
+      showToast(result?.error || 'Failed to send request');
+      btn.disabled = false;
+      btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 3v10.55A4 4 0 1014 17V7h4V3h-6z"/></svg> Request to Listen`;
+    }
+  });
+
+  // Helper: update profile "Listen Along" button visibility
+  function updateProfileListenAlongButton() {
+    const btn = $('#profile-listen-along');
+    if (!btn) return;
+    const uid = btn.dataset.friendUid;
+    if (!uid) { btn.classList.add('hidden'); return; }
+
+    const presence = _friendsPresenceMap[uid];
+    const isOnline = !!(presence && presence.isOnline);
+    // Show button if friend is online AND we're not already in a listen-along session
+    if (isOnline && !_listenAlong) {
+      btn.classList.remove('hidden');
+    } else {
+      btn.classList.add('hidden');
+    }
+  }
+
   // Stop real-time listeners when leaving friends view or signing out
   function stopFriendsRefresh() {
     if (_socialListening) {
       _socialListening = false;
       _friendsPresenceMap = {};
+      // End listen-along if active
+      if (_listenAlong) {
+        window.snowify.endListenAlong();
+        _listenAlong = null;
+        $('#listen-along-banner').classList.add('hidden');
+      }
+      // Dismiss any pending request
+      if (_listenAlongPendingRequest) {
+        _listenAlongPendingRequest = null;
+        clearTimeout(_listenAlongRequestTimeout);
+        $('#listen-along-notification').classList.add('hidden');
+      }
       window.snowify.stopSocialListening();
     }
   }
@@ -6104,6 +6675,63 @@
     if (state.country) window.snowify.setCountry(state.country);
     document.documentElement.classList.toggle('no-animations', !state.animations);
     document.documentElement.classList.toggle('no-effects', !state.effects);
+
+    // ── Listening Activity toggle ──
+    const listeningActivityToggle = $('#setting-listening-activity');
+    listeningActivityToggle.checked = state.showListeningActivity;
+    listeningActivityToggle.addEventListener('change', () => {
+      state.showListeningActivity = listeningActivityToggle.checked;
+      saveState();
+      onListeningActivityToggled();
+    });
+
+    // ── Profile Extras (banner & bio) ──
+    const bannerPreview = $('#profile-banner-preview');
+    const btnChangeBanner = $('#btn-change-banner');
+    const btnRemoveBanner = $('#btn-remove-banner');
+    const bioInput = $('#profile-bio-input');
+    const bioCount = $('#profile-bio-count');
+    const btnSaveBio = $('#btn-save-bio');
+
+    loadProfileExtras();
+
+    bioInput.addEventListener('input', () => {
+      bioCount.textContent = `${bioInput.value.length}/200`;
+    });
+
+    btnChangeBanner.addEventListener('click', async () => {
+      const result = await window.snowify.pickImage();
+      if (!result) return;
+      const dataUri = await window.snowify.readImage(result);
+      if (!dataUri) return;
+      const res = await window.snowify.updateProfileExtras({ banner: dataUri });
+      if (res?.success) {
+        bannerPreview.innerHTML = `<img src="${escapeHtml(dataUri)}" alt="" draggable="false" />`;
+        btnRemoveBanner.style.display = '';
+        showToast('Banner updated');
+      } else {
+        showToast(res?.error || 'Failed to update banner');
+      }
+    });
+
+    btnRemoveBanner.addEventListener('click', async () => {
+      const res = await window.snowify.updateProfileExtras({ banner: '' });
+      if (res?.success) {
+        bannerPreview.innerHTML = '<span class="profile-banner-placeholder">No banner</span>';
+        btnRemoveBanner.style.display = 'none';
+        showToast('Banner removed');
+      }
+    });
+
+    btnSaveBio.addEventListener('click', async () => {
+      const bio = bioInput.value.trim().slice(0, 200);
+      const res = await window.snowify.updateProfileExtras({ bio });
+      if (res?.success) {
+        showToast('Bio saved');
+      } else {
+        showToast(res?.error || 'Failed to save bio');
+      }
+    });
 
     // Apply theme
     function applyTheme(theme) {

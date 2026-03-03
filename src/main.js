@@ -656,6 +656,14 @@ ipcMain.handle('profile:update', async (_event, { displayName, photoURL }) => {
     if (photoURL !== undefined) profileData.photoURL = photoURL;
     const docRef = firebase.doc(firebase.db, 'users', user.uid);
     await firebase.setDoc(docRef, { profile: profileData }, { merge: true });
+
+    // Fan-out updated info to all friends' subcollections + friendCodes lookup
+    const updatedInfo = { displayName: user.displayName || '' };
+    if (photoURL !== undefined) updatedInfo.photoURL = photoURL;
+    propagateProfileToFriends(user.uid, updatedInfo).catch(err =>
+      console.error('Profile fan-out error:', err.message)
+    );
+
     return {
       uid: user.uid,
       email: user.email,
@@ -675,6 +683,127 @@ ipcMain.handle('profile:readImage', async (_event, filePath) => {
     return `data:${mime};base64,${buffer.toString('base64')}`;
   } catch (_) {
     return null;
+  }
+});
+
+// Update profile banner & bio
+ipcMain.handle('profile:updateExtras', async (_event, { banner, bio }) => {
+  const user = firebase.auth.currentUser;
+  if (!user) return { error: 'Not signed in' };
+  try {
+    // Validate banner is a data URI or empty string
+    if (banner !== undefined && banner !== '' && !banner.startsWith('data:image/')) {
+      return { error: 'Invalid banner format' };
+    }
+    // Reject banners over 800KB to stay within Firestore limits
+    if (banner && banner.length > 800000) {
+      return { error: 'Banner image is too large. Please use a smaller image.' };
+    }
+    const docRef = firebase.doc(firebase.db, 'users', user.uid);
+    const updateData = {};
+    if (banner !== undefined) updateData['profile.banner'] = banner;
+    if (bio !== undefined) updateData['profile.bio'] = String(bio).slice(0, 200);
+    // Use updateDoc for dot-notation keys (setDoc merge treats them as literal field names)
+    await firebase.updateDoc(docRef, updateData);
+    return { success: true };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+// Get a user's full profile (for friend profile viewing)
+ipcMain.handle('profile:get', async (_event, uid) => {
+  try {
+    const docRef = firebase.doc(firebase.db, 'users', uid);
+    const snap = await firebase.getDoc(docRef);
+    if (!snap.exists()) return null;
+    const data = snap.data();
+    const profile = data.profile || {};
+    // Migration: if banner/bio were stored as top-level dot-notation keys
+    // by the old buggy setDoc, merge them into the profile object
+    if (data['profile.banner'] && !profile.banner) profile.banner = data['profile.banner'];
+    if (data['profile.bio'] && !profile.bio) profile.bio = data['profile.bio'];
+    return profile;
+  } catch (err) {
+    return null;
+  }
+});
+
+// Save/update public playlists to Firestore
+ipcMain.handle('social:savePublicPlaylists', async (_event, playlists) => {
+  const user = firebase.auth.currentUser;
+  if (!user) return { error: 'Not signed in' };
+  try {
+    const docRef = firebase.doc(firebase.db, 'users', user.uid);
+    await firebase.setDoc(docRef, { publicPlaylists: playlists }, { merge: true });
+    return { success: true };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+// Get a user's public playlists
+ipcMain.handle('social:getPublicPlaylists', async (_event, uid) => {
+  try {
+    const docRef = firebase.doc(firebase.db, 'users', uid);
+    const snap = await firebase.getDoc(docRef);
+    if (!snap.exists()) return [];
+    return snap.data().publicPlaylists || [];
+  } catch (err) {
+    return [];
+  }
+});
+
+// ─── Listen Along ───
+
+// Send a listen-along request — writes to OWN presence so no permission issues
+ipcMain.handle('social:requestListenAlong', async (_event, targetUid) => {
+  const user = firebase.auth.currentUser;
+  if (!user) return { error: 'Not signed in' };
+  try {
+    const myPresRef = firebase.doc(firebase.db, 'presence', user.uid);
+    await firebase.updateDoc(myPresRef, {
+      listenAlongRequest: {
+        toUid: targetUid,
+        fromName: user.displayName || 'Someone',
+        timestamp: Date.now()
+      }
+    });
+    return { success: true };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+// Accept or deny a listen-along request
+ipcMain.handle('social:respondListenAlong', async (_event, fromUid, accepted) => {
+  const user = firebase.auth.currentUser;
+  if (!user) return { error: 'Not signed in' };
+  try {
+    const myPresRef = firebase.doc(firebase.db, 'presence', user.uid);
+    if (accepted) {
+      // I become host — the requester listens to MY music
+      await firebase.updateDoc(myPresRef, {
+        listenAlong: { peerUid: fromUid, role: 'host' }
+      });
+    }
+    // Whether accepted or denied, nothing else to do —
+    // the requester's friend-presence listener will detect acceptance
+    return { success: true, accepted };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+// End a listen-along session — only clears OWN presence
+ipcMain.handle('social:endListenAlong', async () => {
+  const user = firebase.auth.currentUser;
+  if (!user) return;
+  try {
+    const myPresRef = firebase.doc(firebase.db, 'presence', user.uid);
+    await firebase.updateDoc(myPresRef, { listenAlong: null });
+  } catch (err) {
+    console.error('endListenAlong error:', err);
   }
 });
 
@@ -742,6 +871,26 @@ function generateFriendCode() {
   return code;
 }
 
+// Propagate profile changes (displayName, photoURL) to all friend subdocs + friendCode lookup
+async function propagateProfileToFriends(uid, updatedFields) {
+  // Update every friend's copy of this user's info
+  const friendsCol = firebase.collection(firebase.db, 'users', uid, 'friends');
+  const friendsSnap = await firebase.getDocs(friendsCol);
+  const promises = friendsSnap.docs.map(friendDoc => {
+    const friendUid = friendDoc.id;
+    const ref = firebase.doc(firebase.db, 'users', friendUid, 'friends', uid);
+    return firebase.setDoc(ref, updatedFields, { merge: true });
+  });
+  // Also update friendCodes lookup if one exists
+  const socialRef = firebase.doc(firebase.db, 'users', uid, 'social', 'info');
+  const socialSnap = await firebase.getDoc(socialRef);
+  if (socialSnap.exists() && socialSnap.data().friendCode) {
+    const lookupRef = firebase.doc(firebase.db, 'friendCodes', socialSnap.data().friendCode);
+    promises.push(firebase.setDoc(lookupRef, updatedFields, { merge: true }));
+  }
+  await Promise.all(promises);
+}
+
 // Add a friend by their code
 ipcMain.handle('social:addFriend', async (_event, code) => {
   const user = firebase.auth.currentUser;
@@ -770,7 +919,14 @@ ipcMain.handle('social:addFriend', async (_event, code) => {
     } catch (_) { /* fall back to friendCode lookup data */ }
 
     // Add friend to both users (bidirectional)
-    const myInfo = { displayName: user.displayName || '', photoURL: user.photoURL || '' };
+    // Read own profile from Firestore (photoURL is stored there, not in Auth)
+    let myPhotoURL = '';
+    try {
+      const myProfileRef = firebase.doc(firebase.db, 'users', user.uid);
+      const myProfileSnap = await firebase.getDoc(myProfileRef);
+      if (myProfileSnap.exists()) myPhotoURL = myProfileSnap.data()?.profile?.photoURL || '';
+    } catch (_) {}
+    const myInfo = { displayName: user.displayName || '', photoURL: myPhotoURL };
     const friendInfo = {
       displayName: fProfile.displayName || friendData.displayName || '',
       photoURL: fProfile.photoURL || friendData.photoURL || ''
@@ -821,23 +977,24 @@ ipcMain.handle('social:updatePresence', async (_event, data) => {
   if (!user) return;
   try {
     const presRef = firebase.doc(firebase.db, 'presence', user.uid);
+    // Use setDoc with merge to create if doesn't exist, but preserve listenAlong fields
     await firebase.setDoc(presRef, {
       ...data,
       displayName: user.displayName || '',
       updatedAt: Date.now()
-    });
+    }, { merge: true });
   } catch (err) {
     console.error('updatePresence error:', err);
   }
 });
 
-// Clear presence (user stopped playing)
+// Clear presence (user stopped playing or went offline)
 ipcMain.handle('social:clearPresence', async () => {
   const user = firebase.auth.currentUser;
   if (!user) return;
   try {
     const presRef = firebase.doc(firebase.db, 'presence', user.uid);
-    await firebase.setDoc(presRef, { isPlaying: false, updatedAt: Date.now() });
+    await firebase.setDoc(presRef, { isPlaying: false, isOnline: false, updatedAt: Date.now() }, { merge: true });
   } catch (err) {
     console.error('clearPresence error:', err);
   }
@@ -877,10 +1034,12 @@ ipcMain.handle('social:getFriendsPresence', async (_event, friendUids) => {
 
 // ─── Real-time social listeners ───
 let _friendsUnsub = null;
+let _ownPresenceUnsub = null;
 const _presenceUnsubs = new Map();
 
 function teardownSocialListeners() {
   if (_friendsUnsub) { _friendsUnsub(); _friendsUnsub = null; }
+  if (_ownPresenceUnsub) { _ownPresenceUnsub(); _ownPresenceUnsub = null; }
   for (const unsub of _presenceUnsubs.values()) unsub();
   _presenceUnsubs.clear();
 }
@@ -894,6 +1053,20 @@ ipcMain.handle('social:startListening', async () => {
 
   // Listen to friends collection
   const friendsCol = firebase.collection(firebase.db, 'users', user.uid, 'friends');
+
+  // Listen to own presence doc for listen-along state changes
+  const myPresRef = firebase.doc(firebase.db, 'presence', user.uid);
+  _ownPresenceUnsub = firebase.onSnapshot(myPresRef, (docSnap) => {
+    if (!docSnap.exists() || !mainWindow || mainWindow.isDestroyed()) return;
+    const data = docSnap.data();
+    // Forward listen-along state so renderer tracks its own role
+    mainWindow.webContents.send('social:ownPresenceUpdated', {
+      listenAlong: data.listenAlong || null
+    });
+  }, (err) => {
+    console.error('Own presence listener error:', err.message);
+  });
+
   _friendsUnsub = firebase.onSnapshot(friendsCol, (snap) => {
     const friends = snap.docs.map(d => ({ uid: d.id, ...d.data() }));
     if (mainWindow && !mainWindow.isDestroyed()) {
@@ -914,9 +1087,44 @@ ipcMain.handle('social:startListening', async () => {
       const presRef = firebase.doc(firebase.db, 'presence', uid);
       const unsub = firebase.onSnapshot(presRef, (docSnap) => {
         const data = docSnap.exists() ? docSnap.data() : null;
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('social:presenceUpdated', { uid, presence: data });
+        if (!mainWindow || mainWindow.isDestroyed()) return;
+
+        // Detect incoming listen-along request from this friend
+        // Friend wrote listenAlongRequest.toUid === myUid on THEIR doc
+        if (data?.listenAlongRequest?.toUid === user.uid) {
+          mainWindow.webContents.send('social:listenAlongRequest', {
+            fromUid: uid,
+            fromName: data.displayName || data.listenAlongRequest.fromName || 'Friend',
+            timestamp: data.listenAlongRequest.timestamp
+          });
         }
+
+        // Detect friend accepted my request (they set listenAlong.peerUid === myUid, role: 'host')
+        // → I should become the guest, and clear my outgoing request
+        if (data?.listenAlong?.peerUid === user.uid && data.listenAlong.role === 'host') {
+          // Auto-set myself as guest on my own presence
+          const myRef = firebase.doc(firebase.db, 'presence', user.uid);
+          firebase.updateDoc(myRef, {
+            listenAlong: { peerUid: uid, role: 'guest' },
+            listenAlongRequest: null
+          }).catch(err => console.error('Auto-set guest error:', err));
+        }
+
+        // Detect friend ended their listen-along session (they cleared listenAlong)
+        // → If I was in a session with them, clear mine too
+        if (!data?.listenAlong || data.listenAlong.peerUid !== user.uid) {
+          // Check if I currently have a listenAlong pointing to this friend
+          const myRef = firebase.doc(firebase.db, 'presence', user.uid);
+          firebase.getDoc(myRef).then(mySnap => {
+            const myData = mySnap.exists() ? mySnap.data() : null;
+            if (myData?.listenAlong?.peerUid === uid) {
+              firebase.updateDoc(myRef, { listenAlong: null }).catch(() => {});
+            }
+          }).catch(() => {});
+        }
+
+        // Forward presence to renderer
+        mainWindow.webContents.send('social:presenceUpdated', { uid, presence: data });
       }, (err) => {
         console.error(`Presence listener error for ${uid}:`, err.message);
       });

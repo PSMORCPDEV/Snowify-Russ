@@ -51,6 +51,8 @@ contextBridge.exposeInMainWorld('snowify', {
   authSignOut: () => ipcRenderer.invoke('auth:signOut'),
   getUser: () => ipcRenderer.invoke('auth:getUser'),
   updateProfile: (data) => ipcRenderer.invoke('profile:update', data),
+  updateProfileExtras: (data) => ipcRenderer.invoke('profile:updateExtras', data),
+  getProfile: (uid) => ipcRenderer.invoke('profile:get', uid),
   readImage: (filePath) => ipcRenderer.invoke('profile:readImage', filePath),
   cloudSave: (data) => ipcRenderer.invoke('cloud:save', data),
   cloudLoad: () => ipcRenderer.invoke('cloud:load'),
@@ -87,6 +89,15 @@ contextBridge.exposeInMainWorld('snowify', {
   stopSocialListening: () => ipcRenderer.invoke('social:stopListening'),
   onFriendsUpdated: (cb) => ipcRenderer.on('social:friendsUpdated', (_e, friends) => cb(friends)),
   onPresenceUpdated: (cb) => ipcRenderer.on('social:presenceUpdated', (_e, data) => cb(data)),
+  savePublicPlaylists: (playlists) => ipcRenderer.invoke('social:savePublicPlaylists', playlists),
+  getPublicPlaylists: (uid) => ipcRenderer.invoke('social:getPublicPlaylists', uid),
+
+  // Listen Along
+  requestListenAlong: (targetUid) => ipcRenderer.invoke('social:requestListenAlong', targetUid),
+  respondListenAlong: (fromUid, accepted) => ipcRenderer.invoke('social:respondListenAlong', fromUid, accepted),
+  endListenAlong: () => ipcRenderer.invoke('social:endListenAlong'),
+  onListenAlongRequest: (cb) => ipcRenderer.on('social:listenAlongRequest', (_e, data) => cb(data)),
+  onOwnPresenceUpdated: (cb) => ipcRenderer.on('social:ownPresenceUpdated', (_e, data) => cb(data)),
 
   // Graceful close
   onBeforeClose: (callback) => ipcRenderer.on('app:before-close', callback),

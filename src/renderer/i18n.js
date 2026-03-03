@@ -81,7 +81,11 @@ window.I18n = (function () {
   async function changeLanguage(locale) {
     const resolved = resolveLocale(locale);
     localStorage.setItem('snowify_locale', resolved);
+    document.body.classList.add('i18n-switching');
     await init(resolved);
+    requestAnimationFrame(() => {
+      document.body.classList.remove('i18n-switching');
+    });
   }
 
   function getLocale() { return _locale; }

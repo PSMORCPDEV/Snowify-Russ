@@ -444,7 +444,14 @@
   "toast.failedUpdateBanner": "बैनर अपडेट करने में विफल",
   "toast.bannerRemoved": "बैनर हटाया गया",
   "toast.bioSaved": "बायो सेव हो गया",
-  "toast.failedSaveBio": "बायो सेव करने में विफल"
-,
-  "queue.cached": "{{count}} कैश्ड"
+  "toast.failedSaveBio": "बायो सेव करने में विफल",
+  "queue.cached": "{{count}} कैश्ड",
+  "settings.prefetchCache": "प्रीफ़ेच कैश",
+  "settings.prefetchCacheDesc": "निर्बाध प्लेबैक के लिए आगामी ट्रैक पहले से डाउनलोड करें",
+  "settings.prefetchOff": "बंद",
+  "settings.prefetch1Track": "1 ट्रैक",
+  "settings.prefetch3Tracks": "3 ट्रैक",
+  "settings.prefetch5Tracks": "5 ट्रैक",
+  "settings.prefetch10Tracks": "10 ट्रैक",
+  "settings.prefetchEntireQueue": "पूरी कतार"
 }

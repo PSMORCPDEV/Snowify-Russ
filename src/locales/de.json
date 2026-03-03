@@ -444,7 +444,14 @@
   "toast.failedUpdateBanner": "Banner konnte nicht aktualisiert werden",
   "toast.bannerRemoved": "Banner entfernt",
   "toast.bioSaved": "Bio gespeichert",
-  "toast.failedSaveBio": "Bio konnte nicht gespeichert werden"
-,
-  "queue.cached": "{{count}} zwischengespeichert"
+  "toast.failedSaveBio": "Bio konnte nicht gespeichert werden",
+  "queue.cached": "{{count}} zwischengespeichert",
+  "settings.prefetchCache": "Vorab-Cache",
+  "settings.prefetchCacheDesc": "Kommende Titel vorab herunterladen für unterbrechungsfreie Wiedergabe",
+  "settings.prefetchOff": "Aus",
+  "settings.prefetch1Track": "1 Titel",
+  "settings.prefetch3Tracks": "3 Titel",
+  "settings.prefetch5Tracks": "5 Titel",
+  "settings.prefetch10Tracks": "10 Titel",
+  "settings.prefetchEntireQueue": "Gesamte Warteschlange"
 }

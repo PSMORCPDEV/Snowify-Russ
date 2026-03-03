@@ -444,7 +444,14 @@
   "toast.failedUpdateBanner": "Banner güncellenemedi",
   "toast.bannerRemoved": "Banner kaldırıldı",
   "toast.bioSaved": "Biyografi kaydedildi",
-  "toast.failedSaveBio": "Biyografi kaydedilemedi"
-,
-  "queue.cached": "{{count}} önbelleğe alındı"
+  "toast.failedSaveBio": "Biyografi kaydedilemedi",
+  "queue.cached": "{{count}} önbelleğe alındı",
+  "settings.prefetchCache": "Önbellek ön yükleme",
+  "settings.prefetchCacheDesc": "Kesintisiz çalma için gelecek parçaları önceden indir",
+  "settings.prefetchOff": "Kapalı",
+  "settings.prefetch1Track": "1 parça",
+  "settings.prefetch3Tracks": "3 parça",
+  "settings.prefetch5Tracks": "5 parça",
+  "settings.prefetch10Tracks": "10 parça",
+  "settings.prefetchEntireQueue": "Tüm sıra"
 }

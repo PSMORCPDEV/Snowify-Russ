@@ -2221,7 +2221,6 @@ function scoreMatch(song, targetTitle, targetArtist) {
 
   // Artist similarity (0–1) — check both the primary artist and all listed artists
   let artistScore = tokenSimilarity(targetArtist, sArtist);
-  // Also check if any artist in the song's artists array matches better
   if (song.artists && Array.isArray(song.artists)) {
     for (const a of song.artists) {
       const s = tokenSimilarity(targetArtist, a?.name || '');
@@ -2243,39 +2242,75 @@ function scoreMatch(song, targetTitle, targetArtist) {
   const normAlbum = normalizeStr(song.album?.name || '');
   for (const tag of UNWANTED_TAGS) {
     if (normAlbum.includes(tag) && !normTarget.includes(tag)) {
-      penalty += 0.15;
+      penalty += 0.2;
     }
   }
 
   // Penalize if the result title has extra parenthetical/bracketed content the query doesn't
-  // e.g. "Someone To You (Pilton Remix)" when searching for "Someone To You"
   const resultExtra = normResult.replace(normTarget, '').trim();
   if (resultExtra.length > 0 && normTarget.length > 0) {
-    // The result has tokens not in the target — penalize proportionally
     const extraTokens = resultExtra.split(' ').filter(Boolean);
     const targetTokens = normTarget.split(' ').filter(Boolean);
-    penalty += 0.1 * (extraTokens.length / Math.max(targetTokens.length, 1));
+    penalty += 0.15 * (extraTokens.length / Math.max(targetTokens.length, 1));
   }
 
   // Bonus for exact title match (normalized)
   if (normResult === normTarget) {
-    penalty -= 0.15;
+    penalty -= 0.2;
   }
 
-  // Strong penalty if artist has zero overlap — likely a cover/wrong version
+  // Heavy penalty if artist has zero overlap — almost certainly a cover/wrong version
   if (artistScore === 0 && normalizeStr(targetArtist).length > 0) {
-    penalty += 0.4;
+    penalty += 0.8;
+  } else if (artistScore < 0.3 && normalizeStr(targetArtist).length > 0) {
+    // Partial penalty for weak artist match
+    penalty += 0.3;
   }
 
-  // Composite: title matters most, artist second, with heavier artist weight
-  return (titleScore * 0.5) + (artistScore * 0.5) - penalty;
+  // Bonus for strong artist match — reward the correct artist heavily
+  if (artistScore >= 0.8) {
+    penalty -= 0.25;
+  }
+
+  // Composite: weight artist more heavily than title (artist is the stronger signal
+  // for differentiating covers/instrumentals from the original)
+  return (titleScore * 0.4) + (artistScore * 0.6) - penalty;
 }
 
 ipcMain.handle('spotify:matchTrack', async (_event, title, artist) => {
   try {
+    // Search with combined query
     const query = `${title} ${artist}`;
     const songs = await ytmusic.searchSongs(query);
-    const candidates = songs.filter(s => s.videoId);
+    let candidates = songs.filter(s => s.videoId);
+
+    // If no good artist match in first results, try a more targeted search
+    if (candidates.length > 0) {
+      const topArtistScore = Math.max(...candidates.slice(0, 5).map(s => {
+        let best = tokenSimilarity(artist, s.artist?.name || '');
+        if (s.artists && Array.isArray(s.artists)) {
+          for (const a of s.artists) {
+            const sc = tokenSimilarity(artist, a?.name || '');
+            if (sc > best) best = sc;
+          }
+        }
+        return best;
+      }));
+
+      // If the top 5 results have poor artist match, do a second search with artist first
+      if (topArtistScore < 0.5) {
+        try {
+          const fallback = await ytmusic.searchSongs(`${artist} ${title}`);
+          const extra = fallback.filter(s => s.videoId);
+          // Merge without duplicates
+          const seenIds = new Set(candidates.map(c => c.videoId));
+          for (const s of extra) {
+            if (!seenIds.has(s.videoId)) { candidates.push(s); seenIds.add(s.videoId); }
+          }
+        } catch (_) { /* ignore fallback failure */ }
+      }
+    }
+
     if (!candidates.length) return null;
 
     let bestSong = candidates[0];

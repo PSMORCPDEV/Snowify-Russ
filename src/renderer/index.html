@@ -690,6 +690,37 @@
             </div>
           </div>
 
+          <!-- Developer -->
+          <div class="settings-group">
+            <h3 data-i18n="settings.developer">Developer</h3>
+            <div class="setting-row">
+              <div class="setting-info">
+                <span class="setting-label" data-i18n="settings.devMode">Developer Mode</span>
+                <span class="setting-desc" data-i18n="settings.devModeDesc">Show version manager and debug logs</span>
+              </div>
+              <label class="toggle-switch">
+                <input type="checkbox" id="setting-dev-mode">
+                <span class="toggle-slider"></span>
+              </label>
+            </div>
+            <div id="dev-mode-content" style="display:none;">
+              <div class="dev-section-label" data-i18n="settings.versionManager">Version Manager</div>
+              <p class="setting-desc" style="margin-bottom:8px;" data-i18n="settings.versionManagerDesc">Download and install any previous release from GitHub.</p>
+              <div id="version-manager-list" class="version-manager-list">
+                <div class="version-manager-loading" data-i18n="common.loading">Loading...</div>
+              </div>
+              <div class="dev-section-label" style="margin-top:18px;" data-i18n="settings.debugLogs">Debug Logs</div>
+              <p class="setting-desc" style="margin-bottom:8px;" data-i18n="settings.debugLogsDesc">Application logs for troubleshooting. Share these when reporting bugs.</p>
+              <div class="debug-logs-toolbar">
+                <button class="btn-setting-action" id="btn-copy-logs" data-i18n="settings.copyLogs">Copy Logs</button>
+                <button class="btn-setting-action" id="btn-clear-logs" data-i18n="common.clear">Clear</button>
+              </div>
+              <div class="debug-logs-container" id="debug-logs-container">
+                <pre class="debug-logs-output" id="debug-logs-output"></pre>
+              </div>
+            </div>
+          </div>
+
         </div>
       </section>
 

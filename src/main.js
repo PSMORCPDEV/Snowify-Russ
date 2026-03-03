@@ -28,6 +28,28 @@ function mt(key, params) {
 
 let mainWindow;
 let ytmusic;
+
+// ─── Log Capture ───
+const _logBuffer = [];
+const _LOG_MAX = 500;
+
+function _captureLog(level, args) {
+  const ts = new Date().toISOString().slice(11, 23); // HH:mm:ss.SSS
+  const msg = args.map(a => {
+    if (typeof a === 'string') return a;
+    try { return JSON.stringify(a); } catch { return String(a); }
+  }).join(' ');
+  _logBuffer.push({ ts, level, msg });
+  if (_logBuffer.length > _LOG_MAX) _logBuffer.shift();
+}
+
+const _origLog = console.log.bind(console);
+const _origWarn = console.warn.bind(console);
+const _origError = console.error.bind(console);
+
+console.log = (...args) => { _captureLog('log', args); _origLog(...args); };
+console.warn = (...args) => { _captureLog('warn', args); _origWarn(...args); };
+console.error = (...args) => { _captureLog('error', args); _origError(...args); };
 let _currentCountry = '';
 
 // ─── Stream URL Cache ───
@@ -2561,6 +2583,12 @@ function initAutoUpdater() {
 
 ipcMain.handle('app:getVersion', () => app.getVersion());
 ipcMain.handle('app:getLocale', () => app.getLocale());
+
+// ─── Debug Logs ───
+ipcMain.handle('app:getLogs', () => [..._logBuffer]);
+ipcMain.handle('app:appendLog', (_event, entry) => {
+  _captureLog(entry.level || 'log', [entry.msg || '']);
+});
 ipcMain.handle('app:setLocale', (_event, locale) => {
   loadMainTranslations(locale);
   updateThumbarButtons(false);
@@ -2619,7 +2647,12 @@ ipcMain.handle('app:getRecentReleases', async () => {
       name: r.name || r.tag_name || '',
       body: r.body || '',
       date: r.published_at || r.created_at || '',
-      url: r.html_url || ''
+      url: r.html_url || '',
+      assets: (r.assets || []).map(a => ({
+        name: a.name,
+        size: a.size,
+        url: a.browser_download_url
+      }))
     }));
   } catch (err) {
     console.error('Failed to fetch releases:', err);

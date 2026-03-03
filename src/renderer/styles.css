@@ -3049,6 +3049,139 @@ body.audio-playing .track-row.playing .track-eq { display: flex; justify-content
   color: var(--text-subdued);
 }
 
+/* ─── Developer Section ─── */
+.dev-section-label {
+  font-size: 13px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--accent);
+  margin: 14px 0 6px;
+}
+#dev-mode-content {
+  border-top: 1px solid var(--border-subtle);
+  margin-top: 10px;
+  padding-top: 10px;
+}
+
+/* ─── Version Manager ─── */
+.version-manager-list {
+  max-height: 400px;
+  overflow-y: auto;
+  border-radius: 8px;
+  background: var(--bg-main);
+  border: 1px solid var(--border-subtle);
+}
+.version-manager-loading,
+.version-manager-empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-subdued);
+  font-size: 13px;
+}
+.version-manager-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border-subtle);
+  gap: 12px;
+}
+.version-manager-item:last-child { border-bottom: none; }
+.version-manager-item.version-current {
+  background: var(--accent-dim);
+}
+.version-manager-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.version-manager-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.version-manager-meta {
+  font-size: 12px;
+  color: var(--text-subdued);
+}
+.version-tag {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.5px;
+}
+.version-tag-current {
+  background: var(--accent);
+  color: #fff;
+}
+.btn-version-download {
+  flex-shrink: 0;
+  font-size: 12px;
+  padding: 5px 12px;
+}
+.version-manager-show-more {
+  width: 100%;
+  padding: 10px;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.version-manager-show-more:hover {
+  background: var(--accent-dim);
+}
+
+/* ─── Debug Logs ─── */
+.debug-logs-toolbar {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.debug-logs-container {
+  max-height: 350px;
+  overflow-y: auto;
+  background: #0d0d0d;
+  border-radius: 8px;
+  border: 1px solid var(--border-subtle);
+  padding: 12px;
+  font-family: 'Courier New', Consolas, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+}
+[data-theme="light"] .debug-logs-container {
+  background: #f4f4f5;
+}
+.debug-logs-output {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: #ccc;
+}
+[data-theme="light"] .debug-logs-output {
+  color: #333;
+}
+.log-line { display: block; }
+.log-line.log-error { color: #ff6b6b; }
+.log-line.log-warn { color: #fbbf24; }
+.log-line.log-log { color: #a8b4c4; }
+[data-theme="light"] .log-line.log-error { color: #dc2626; }
+[data-theme="light"] .log-line.log-warn { color: #d97706; }
+[data-theme="light"] .log-line.log-log { color: #555; }
+.log-empty {
+  color: var(--text-subdued);
+  font-style: italic;
+}
+
 /* ═══════ Library Grid ═══════ */
 .library-grid {
   display: grid;

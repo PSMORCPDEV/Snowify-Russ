@@ -7538,6 +7538,159 @@
       }
     });
 
+    // ─── Developer Section ───
+
+    // Log capture runs always, regardless of dev mode toggle
+    const _rendererLogs = [];
+    const _maxRendererLogs = 200;
+    function pushRendererLog(level, msg) {
+      const ts = new Date().toISOString().slice(11, 23);
+      _rendererLogs.push({ ts, level, msg, source: 'renderer' });
+      if (_rendererLogs.length > _maxRendererLogs) _rendererLogs.shift();
+    }
+    const _origRendererLog = console.log.bind(console);
+    const _origRendererWarn = console.warn.bind(console);
+    const _origRendererError = console.error.bind(console);
+    console.log = (...args) => { pushRendererLog('log', args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ')); _origRendererLog(...args); };
+    console.warn = (...args) => { pushRendererLog('warn', args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ')); _origRendererWarn(...args); };
+    console.error = (...args) => { pushRendererLog('error', args.map(a => typeof a === 'string' ? a : JSON.stringify(a)).join(' ')); _origRendererError(...args); };
+
+    // Dev mode toggle
+    const devModeToggle = $('#setting-dev-mode');
+    const devModeContent = $('#dev-mode-content');
+    devModeToggle.checked = localStorage.getItem('snowify_dev_mode') === '1';
+    devModeContent.style.display = devModeToggle.checked ? '' : 'none';
+    devModeToggle.addEventListener('change', () => {
+      localStorage.setItem('snowify_dev_mode', devModeToggle.checked ? '1' : '0');
+      devModeContent.style.display = devModeToggle.checked ? '' : 'none';
+      if (devModeToggle.checked) { refreshLogs(); loadVersions(); }
+    });
+
+    // ── Version Manager ──
+    const _VM_COLLAPSED = 5;
+    let _vmLoaded = false;
+    async function loadVersions() {
+      if (_vmLoaded) return;
+      const listEl = $('#version-manager-list');
+      const currentVersion = await window.snowify.getVersion();
+      try {
+        const releases = await window.snowify.getRecentReleases();
+        if (!releases || !releases.length) {
+          listEl.innerHTML = `<div class="version-manager-empty">${I18n.t('settings.noReleases')}</div>`;
+          _vmLoaded = true;
+          return;
+        }
+        const platform = window.snowify.platform;
+        let html = '';
+        releases.forEach((r, idx) => {
+          const isCurrent = r.version === currentVersion;
+          const dateStr = r.date ? new Date(r.date).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '';
+
+          let downloadAsset = null;
+          if (r.assets && r.assets.length) {
+            for (const a of r.assets) {
+              const name = a.name.toLowerCase();
+              if (platform === 'linux' && (name.endsWith('.appimage') || name.endsWith('.deb'))) { downloadAsset = a; break; }
+              if (platform === 'win32' && name.endsWith('.exe')) { downloadAsset = a; break; }
+              if (platform === 'darwin' && (name.endsWith('.dmg') || name.endsWith('.zip'))) { downloadAsset = a; break; }
+            }
+            if (!downloadAsset) {
+              downloadAsset = r.assets.find(a => !a.name.endsWith('.yml') && !a.name.endsWith('.yaml') && !a.name.endsWith('.blockmap'));
+            }
+          }
+
+          const sizeStr = downloadAsset ? `${(downloadAsset.size / 1024 / 1024).toFixed(1)} MB` : '';
+          const tag = isCurrent
+            ? `<span class="version-tag version-tag-current">${I18n.t('settings.currentVersion')}</span>`
+            : '';
+          const downloadBtn = !isCurrent && downloadAsset
+            ? `<button class="btn-setting-action btn-version-download" data-url="${escapeHtml(downloadAsset.url)}">${I18n.t('settings.download')}</button>`
+            : !isCurrent && r.url
+              ? `<button class="btn-setting-action btn-version-download" data-url="${escapeHtml(r.url)}">${I18n.t('settings.viewRelease')}</button>`
+              : '';
+
+          const hidden = idx >= _VM_COLLAPSED ? ' style="display:none" data-vm-extra' : '';
+          html += `<div class="version-manager-item${isCurrent ? ' version-current' : ''}"${hidden}>
+            <div class="version-manager-info">
+              <span class="version-manager-name">v${escapeHtml(r.version)} ${tag}</span>
+              <span class="version-manager-meta">${escapeHtml(dateStr)}${sizeStr ? ' · ' + sizeStr : ''}</span>
+            </div>
+            ${downloadBtn}
+          </div>`;
+        });
+
+        if (releases.length > _VM_COLLAPSED) {
+          html += `<button class="version-manager-show-more" id="btn-vm-show-more">${I18n.t('settings.showOlderVersions', { count: releases.length - _VM_COLLAPSED })}</button>`;
+        }
+
+        listEl.innerHTML = html;
+
+        listEl.querySelectorAll('.btn-version-download').forEach(btn => {
+          btn.addEventListener('click', () => window.snowify.openExternal(btn.dataset.url));
+        });
+
+        const showMoreBtn = listEl.querySelector('#btn-vm-show-more');
+        if (showMoreBtn) {
+          showMoreBtn.addEventListener('click', () => {
+            listEl.querySelectorAll('[data-vm-extra]').forEach(el => el.style.display = '');
+            showMoreBtn.remove();
+          });
+        }
+        _vmLoaded = true;
+      } catch (err) {
+        listEl.innerHTML = `<div class="version-manager-empty">${I18n.t('settings.releasesError')}</div>`;
+      }
+    }
+
+    // ── Debug Logs ──
+    const logsOutput = $('#debug-logs-output');
+    const logsContainer = $('#debug-logs-container');
+
+    async function refreshLogs() {
+      try {
+        const mainLogs = await window.snowify.getLogs();
+        const all = [
+          ...mainLogs.map(l => ({ ...l, source: 'main' })),
+          ..._rendererLogs
+        ].sort((a, b) => a.ts.localeCompare(b.ts));
+
+        const lines = all.map(l => {
+          const levelTag = l.level === 'error' ? 'ERR' : l.level === 'warn' ? 'WRN' : 'LOG';
+          const sourceTag = l.source === 'main' ? 'main' : 'renderer';
+          return `<span class="log-line log-${l.level}">[${l.ts}] [${sourceTag}] [${levelTag}] ${escapeHtml(l.msg)}</span>`;
+        });
+
+        logsOutput.innerHTML = lines.join('\n') || `<span class="log-empty">${I18n.t('settings.noLogs')}</span>`;
+        logsContainer.scrollTop = logsContainer.scrollHeight;
+      } catch (err) {
+        logsOutput.textContent = 'Failed to load logs';
+      }
+    }
+
+    // Refresh logs when settings view becomes visible (only if dev mode is on)
+    const _logsObserver = new MutationObserver(() => {
+      if ($('#view-settings').classList.contains('active') && devModeToggle.checked) {
+        refreshLogs();
+        loadVersions();
+      }
+    });
+    _logsObserver.observe($('#view-settings'), { attributes: true, attributeFilter: ['class'] });
+
+    // Load on init if dev mode is already on
+    if (devModeToggle.checked) { refreshLogs(); loadVersions(); }
+
+    $('#btn-copy-logs').addEventListener('click', async () => {
+      await refreshLogs();
+      const text = logsOutput.textContent;
+      navigator.clipboard.writeText(text).then(() => showToast(I18n.t('settings.logsCopied')));
+    });
+
+    $('#btn-clear-logs').addEventListener('click', () => {
+      _rendererLogs.length = 0;
+      logsOutput.innerHTML = '';
+      showToast(I18n.t('settings.logsCleared'));
+    });
+
     // Account buttons
     $('#btn-sign-in').addEventListener('click', async () => {
       const email = $('#auth-email').value.trim();

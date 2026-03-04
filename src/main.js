@@ -320,8 +320,8 @@ function createWindow() {
       "script-src 'self' 'unsafe-inline'; " +
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
       "font-src 'self' https://fonts.gstatic.com; " +
-      "img-src 'self' https: data: file:; " +
-      "media-src 'self' blob: https:; " +
+      "img-src 'self' https: http: data: file:; " +
+      "media-src 'self' blob: https: http:; " +
       "connect-src 'self' https: http:;"
     ];
 

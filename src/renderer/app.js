@@ -62,7 +62,8 @@
     crossfade: 0,
     normalization: false,
     normalizationTarget: -14,
-    showListeningActivity: true
+    showListeningActivity: true,
+    showPlugins: true
   };
 
   // ─── Save button SVGs ───
@@ -159,7 +160,8 @@
       crossfade: state.crossfade,
       normalization: state.normalization,
       normalizationTarget: state.normalizationTarget,
-      showListeningActivity: state.showListeningActivity
+      showListeningActivity: state.showListeningActivity,
+      showPlugins: state.showPlugins
     }));
     localStorage.setItem('snowify_lastSave', String(Date.now()));
     cloudSaveDebounced();
@@ -212,6 +214,7 @@
         state.crossfade = saved.crossfade ?? 0;
         state.normalization = saved.normalization ?? false;
         state.normalizationTarget = saved.normalizationTarget ?? -14;
+        state.showPlugins = saved.showPlugins ?? true;
       }
       // Restore queue (local-only, separate from cloud sync)
       const savedQueue = JSON.parse(localStorage.getItem('snowify_queue'));
@@ -5441,7 +5444,8 @@
         country: state.country,
         crossfade: state.crossfade,
         normalization: state.normalization,
-        normalizationTarget: state.normalizationTarget
+        normalizationTarget: state.normalizationTarget,
+        showPlugins: state.showPlugins
       };
       const result = await window.snowify.cloudSave(data);
       if (result?.error) console.error('Cloud save failed:', result.error);
@@ -5479,6 +5483,11 @@
       state.crossfade = cloud.crossfade ?? state.crossfade;
       state.normalization = cloud.normalization ?? state.normalization;
       state.normalizationTarget = cloud.normalizationTarget ?? state.normalizationTarget;
+      state.showPlugins = cloud.showPlugins ?? state.showPlugins;
+      const spt = $('#setting-show-plugins');
+      if (spt) spt.checked = state.showPlugins;
+      const pluginsNavBtnCloud = document.querySelector('.nav-btn[data-view="plugins"]');
+      if (pluginsNavBtnCloud) pluginsNavBtnCloud.style.display = state.showPlugins ? '' : 'none';
       // Pause cloud save so saveState() doesn't push old data back up
       _cloudSyncPaused = true;
       saveState();
@@ -5826,7 +5835,8 @@
       crossfade: state.crossfade,
       normalization: state.normalization,
       normalizationTarget: state.normalizationTarget,
-      showListeningActivity: state.showListeningActivity
+      showListeningActivity: state.showListeningActivity,
+      showPlugins: state.showPlugins
     };
     const result = await window.snowify.cloudSave(data);
     if (result?.error) console.error('Cloud save failed:', result.error);
@@ -6961,6 +6971,24 @@
       onListeningActivityToggled();
     });
 
+    // ── Plugins toggle ──
+    const showPluginsToggle = $('#setting-show-plugins');
+    const pluginsNavBtn = document.querySelector('.nav-btn[data-view="plugins"]');
+    showPluginsToggle.checked = state.showPlugins;
+    if (pluginsNavBtn) pluginsNavBtn.style.display = state.showPlugins ? '' : 'none';
+    showPluginsToggle.addEventListener('change', () => {
+      state.showPlugins = showPluginsToggle.checked;
+      if (pluginsNavBtn) pluginsNavBtn.style.display = state.showPlugins ? '' : 'none';
+      if (!state.showPlugins) {
+        const ps = getPluginState();
+        Object.keys(ps).forEach(id => { ps[id].enabled = false; });
+        savePluginState(ps);
+        document.querySelectorAll('[data-plugin-id]').forEach(el => el.remove());
+        if (state.currentView === 'plugins') switchView('home');
+      }
+      saveState();
+    });
+
     // ── Profile Extras (banner & bio) ──
     const bannerPreview = $('#profile-banner-preview');
     const btnChangeBanner = $('#btn-change-banner');
@@ -7872,6 +7900,7 @@
   }
 
   async function loadEnabledPlugins() {
+    if (!state.showPlugins) return;
     const ps = getPluginState();
     for (const [id, info] of Object.entries(ps)) {
       if (!info.enabled) continue;

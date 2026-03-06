@@ -1409,6 +1409,10 @@
     updateSocialPresence(track);
 
     if (!state.discordRpc || !track) return;
+
+    // If a radio plugin is active, let it manage its own Discord presence
+    if (document.body.classList.contains('radio-plugin-active')) return;
+
     const src = engine.getActiveSource();
     const startMs = Date.now() - Math.floor((src.currentTime || 0) * 1000);
     const durationMs = track.durationMs || (src.duration ? Math.round(src.duration * 1000) : 0);
@@ -1427,6 +1431,7 @@
   function clearDiscordPresence() {
     clearSocialPresence();
     if (!state.discordRpc) return;
+    if (document.body.classList.contains('radio-plugin-active')) return;
     window.snowify.clearPresence();
   }
 

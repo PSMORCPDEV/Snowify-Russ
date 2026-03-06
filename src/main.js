@@ -1224,6 +1224,7 @@ ipcMain.handle('discord:updatePresence', async (_event, data) => {
       details: data.title || 'Unknown',
       state: data.artist || 'Unknown Artist',
       largeImageKey: data.thumbnail || 'logo',
+      largeImageText: data.title || 'Snowify',
       smallImageKey: 'logo',
       smallImageText: 'Snowify',
       startTimestamp: data.startTimestamp ? new Date(data.startTimestamp) : undefined,

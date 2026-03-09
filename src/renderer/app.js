@@ -8177,9 +8177,13 @@ const cachedPath = prefetchCache.getCachedPath(track.id);
       requestAnimationFrame(() => {
         grid.querySelectorAll('.plugin-card-desc').forEach(desc => {
           const btn = desc.nextElementSibling;
-          if (btn && btn.dataset.action === 'readmore') {
-            btn.style.display = desc.scrollHeight > desc.clientHeight + 2 ? '' : 'none';
-          }
+          if (!btn || btn.dataset.action !== 'readmore') return;
+          // Temporarily un-clamp to measure full natural height
+          desc.classList.add('expanded');
+          const fullH = desc.scrollHeight;
+          desc.classList.remove('expanded');
+          const lineH = parseFloat(getComputedStyle(desc).lineHeight) || 18;
+          btn.style.display = fullH > lineH * 3 + 2 ? '' : 'none';
         });
       });
       grid.querySelectorAll('[data-action="readmore"]').forEach(btn => {
@@ -8349,9 +8353,13 @@ const cachedPath = prefetchCache.getCachedPath(track.id);
       requestAnimationFrame(() => {
         themesGrid.querySelectorAll('.theme-card-desc').forEach(desc => {
           const btn = desc.nextElementSibling;
-          if (btn && btn.dataset.action === 'readmore') {
-            btn.style.display = desc.scrollHeight > desc.clientHeight + 2 ? '' : 'none';
-          }
+          if (!btn || btn.dataset.action !== 'readmore') return;
+          // Temporarily un-clamp to measure full natural height
+          desc.classList.add('expanded');
+          const fullH = desc.scrollHeight;
+          desc.classList.remove('expanded');
+          const lineH = parseFloat(getComputedStyle(desc).lineHeight) || 18;
+          btn.style.display = fullH > lineH * 3 + 2 ? '' : 'none';
         });
       });
       themesGrid.querySelectorAll('[data-action="readmore"]').forEach(btn => {

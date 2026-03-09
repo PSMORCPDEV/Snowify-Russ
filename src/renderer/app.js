@@ -7606,6 +7606,20 @@ const cachedPath = prefetchCache.getCachedPath(track.id);
       $('#app-version-label').textContent = `v${version}`;
     })();
 
+    const _updateBanner = $('#update-banner');
+    const _updateBannerMsg = $('#update-banner-msg');
+    function showUpdateBanner(msg, version) {
+      const dismissedKey = `snowify_update_dismissed_${version}`;
+      if (localStorage.getItem(dismissedKey)) return;
+      _updateBannerMsg.textContent = msg;
+      _updateBanner.style.display = '';
+      $('#update-banner-go').onclick = () => switchView('settings');
+      $('#update-banner-dismiss').onclick = () => {
+        _updateBanner.style.display = 'none';
+        localStorage.setItem(dismissedKey, '1');
+      };
+    }
+
     const btnCheckUpdate = $('#btn-check-update');
     const btnInstallUpdate = $('#btn-install-update');
     const updateStatusRow = $('#update-status-row');
@@ -7646,7 +7660,7 @@ const cachedPath = prefetchCache.getCachedPath(track.id);
           btnInstallUpdate.style.display = '';
           btnInstallUpdate.disabled = false;
           btnInstallUpdate.textContent = I18n.t('settings.downloadInstall');
-          showToast(I18n.t('toast.updateAvailable', { version: data.version }));
+          showUpdateBanner(`Update available: v${data.version} — download it in Settings.`, data.version);
           break;
         case 'up-to-date':
           updateStatusLabel.textContent = I18n.t('update.upToDate');
@@ -7668,7 +7682,7 @@ const cachedPath = prefetchCache.getCachedPath(track.id);
             // electron-updater quitAndInstall
             window.snowify.installUpdate();
           };
-          showToast(I18n.t('toast.updateDownloaded'));
+          showUpdateBanner(`v${data.version} is ready — restart Snowify to apply the update.`, data.version);
           break;
         case 'error': {
           updateStatusLabel.textContent = I18n.t('update.error');

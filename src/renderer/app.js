@@ -3967,7 +3967,7 @@ const cachedPath = prefetchCache.getCachedPath(track.id);
     // Share button
     const shareBtn = $('#btn-artist-share');
     shareBtn.onclick = () => {
-      navigator.clipboard.writeText(`https://music.youtube.com/channel/${artistId}`);
+      navigator.clipboard.writeText(`https://snowify.cc/artist/${artistId}`);
       showToast(I18n.t('toast.linkCopied'));
     };
 
@@ -5975,22 +5975,31 @@ const cachedPath = prefetchCache.getCachedPath(track.id);
   }
 
   // ─── Deep link handler ───
-  if (window.snowify.onDeepLink) {
-    window.snowify.onDeepLink(async ({ type, id }) => {
-      if (type === 'track') {
-        const track = await window.snowify.getTrackInfo(id).catch(() => null);
-        if (track) {
-          state.queue = [track];
-          state.queueIndex = 0;
-          playTrack(track);
-        } else {
-          showToast('Could not load track');
-        }
-      } else if (type === 'album') {
-        showAlbumDetail(id, null);
-      } else if (type === 'artist') {
-        openArtistPage(id);
+  async function handleAppDeepLink({ type, id }) {
+    if (type === 'track') {
+      const track = await window.snowify.getTrackInfo(id).catch(() => null);
+      if (track) {
+        state.queue = [track];
+        state.queueIndex = 0;
+        playTrack(track);
+      } else {
+        showToast('Could not load track');
       }
+    } else if (type === 'album') {
+      showAlbumDetail(id, null);
+    } else if (type === 'artist') {
+      openArtistPage(id);
+    }
+  }
+
+  if (window.snowify.onDeepLink) {
+    window.snowify.onDeepLink(handleAppDeepLink);
+  }
+
+  // Check for a buffered deep link from cold start
+  if (window.snowify.getPendingDeepLink) {
+    window.snowify.getPendingDeepLink().then(link => {
+      if (link) handleAppDeepLink(link);
     });
   }
 

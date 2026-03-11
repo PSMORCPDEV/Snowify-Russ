@@ -546,21 +546,31 @@ async function checkMacYtDlp() {
 }
 
 // ─── Deep link handler ────────────────────────────────────────────────────────
+let _pendingDeepLink = null;
+
 function handleDeepLink(url) {
-  if (!mainWindow) return;
   try {
-    // Parse snowify://type/id — URL constructor gives hostname=type, pathname=/id
-    // Also handle snowify:type/id or snowify://type/id/ edge cases
-    const cleaned = url.replace(/^snowify:\/?\/?/, ''); // strip scheme
+    const cleaned = url.replace(/^snowify:\/?\/?/, '');
     const [type, ...rest] = cleaned.split('/').filter(Boolean);
-    const id = rest.join('/'); // in case ID contains slashes (shouldn't, but safe)
+    const id = rest.join('/');
     if (!id || !['track', 'album', 'artist'].includes(type)) return;
     console.log(`Deep link: ${type}/${id}`);
-    mainWindow.webContents.send('app:deepLink', { type, id });
-    if (mainWindow.isMinimized()) mainWindow.restore();
-    mainWindow.focus();
+    if (mainWindow && mainWindow.webContents) {
+      mainWindow.webContents.send('app:deepLink', { type, id });
+      if (mainWindow.isMinimized()) mainWindow.restore();
+      mainWindow.focus();
+    } else {
+      // Window not ready yet (cold start) — buffer for renderer to pull
+      _pendingDeepLink = { type, id };
+    }
   } catch (_) {}
 }
+
+ipcMain.handle('app:getPendingDeepLink', () => {
+  const link = _pendingDeepLink;
+  _pendingDeepLink = null;
+  return link;
+});
 
 app.whenReady().then(async () => {
   // Register snowify:// protocol — in dev mode, pass electron binary + project path
@@ -579,9 +589,9 @@ app.whenReady().then(async () => {
   initAutoUpdater();
   // Handle deep link from cold start (Linux/Windows pass it as argv)
   const coldLink = process.argv.find(a => a.startsWith('snowify://'));
-  if (coldLink) {
-    // Window may not be ready yet — wait for dom-ready before dispatching
-    mainWindow.webContents.once('did-finish-load', () => handleDeepLink(coldLink));
+  if (coldLink) _pendingDeepLink = { __raw: coldLink };
+  if (_pendingDeepLink?.__raw) {
+    handleDeepLink(_pendingDeepLink.__raw);
   }
 });
 app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });

@@ -53,6 +53,7 @@ contextBridge.exposeInMainWorld('snowify', {
   // Account & Cloud Sync
   signInWithEmail: (email, password) => ipcRenderer.invoke('auth:signInWithEmail', email, password),
   signUpWithEmail: (email, password) => ipcRenderer.invoke('auth:signUpWithEmail', email, password),
+  sendPasswordReset: (email) => ipcRenderer.invoke('auth:sendPasswordReset', email),
   authSignOut: () => ipcRenderer.invoke('auth:signOut'),
   getUser: () => ipcRenderer.invoke('auth:getUser'),
   updateProfile: (data) => ipcRenderer.invoke('profile:update', data),

@@ -5491,6 +5491,30 @@ const cachedPath = prefetchCache.getCachedPath(track.id);
       localStorage.setItem('snowify_welcome_skipped', '1');
       dismissWelcome();
     });
+
+    $('#btn-welcome-forgot').addEventListener('click', async () => {
+      clearError();
+      const email = emailInput.value.trim();
+      if (!email) { showError(I18n.t('welcome.enterEmailForReset')); return; }
+      const now = Date.now();
+      const remaining = Math.ceil((RESET_COOLDOWN_MS - (now - _resetEmailLastSent)) / 1000);
+      if (remaining > 0) { showError(`Please wait ${remaining}s before sending another reset email.`); return; }
+      const btn = $('#btn-welcome-forgot');
+      btn.disabled = true;
+      const result = await window.snowify.sendPasswordReset(email);
+      if (result?.error) { btn.disabled = false; showError(result.error); return; }
+      _resetEmailLastSent = Date.now();
+      errorEl.classList.remove('hidden');
+      errorEl.style.color = 'var(--accent)';
+      errorEl.textContent = I18n.t('welcome.resetEmailSent');
+      // Cooldown countdown on button
+      let secs = 60;
+      const iv = setInterval(() => {
+        secs--;
+        if (secs <= 0) { clearInterval(iv); btn.disabled = false; btn.textContent = I18n.t('welcome.forgotPassword'); }
+        else { btn.textContent = `Resend in ${secs}s`; }
+      }, 1000);
+    });
   }
 
   function dismissWelcome() {
@@ -5506,6 +5530,8 @@ const cachedPath = prefetchCache.getCachedPath(track.id);
   // ─── Cloud Sync ───
 
   let _cloudSaveTimeout = null;
+  let _resetEmailLastSent = 0;
+  const RESET_COOLDOWN_MS = 60000;
   let _cloudUser = null;
   let _cloudSyncPaused = false;
 
@@ -7902,6 +7928,46 @@ const cachedPath = prefetchCache.getCachedPath(track.id);
     $('#btn-sign-out').addEventListener('click', async () => {
       await window.snowify.authSignOut();
       showToast(I18n.t('toast.signedOut'));
+    });
+
+    $('#btn-forgot-settings').addEventListener('click', async () => {
+      const email = $('#auth-email').value.trim();
+      const errorEl = $('#auth-error');
+      errorEl.classList.add('hidden');
+      if (!email) {
+        errorEl.textContent = I18n.t('welcome.enterEmailForReset');
+        errorEl.classList.remove('hidden');
+        return;
+      }
+      const now = Date.now();
+      const remaining = Math.ceil((RESET_COOLDOWN_MS - (now - _resetEmailLastSent)) / 1000);
+      if (remaining > 0) {
+        errorEl.textContent = `Please wait ${remaining}s before sending another reset email.`;
+        errorEl.style.color = '';
+        errorEl.classList.remove('hidden');
+        return;
+      }
+      const btn = $('#btn-forgot-settings');
+      btn.disabled = true;
+      const result = await window.snowify.sendPasswordReset(email);
+      if (result?.error) {
+        btn.disabled = false;
+        errorEl.textContent = result.error;
+        errorEl.style.color = '';
+        errorEl.classList.remove('hidden');
+      } else {
+        _resetEmailLastSent = Date.now();
+        errorEl.style.color = 'var(--accent)';
+        errorEl.textContent = I18n.t('welcome.resetEmailSent');
+        errorEl.classList.remove('hidden');
+        // Cooldown countdown on button
+        let secs = 60;
+        const iv = setInterval(() => {
+          secs--;
+          if (secs <= 0) { clearInterval(iv); btn.disabled = false; btn.textContent = I18n.t('welcome.forgotPassword'); }
+          else { btn.textContent = `Resend in ${secs}s`; }
+        }, 1000);
+      }
     });
 
     $('#btn-sync-now').addEventListener('click', async () => {

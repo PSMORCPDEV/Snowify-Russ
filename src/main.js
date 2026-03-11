@@ -662,6 +662,17 @@ ipcMain.handle('auth:signUpWithEmail', async (_event, email, password) => {
   }
 });
 
+ipcMain.handle('auth:sendPasswordReset', async (_event, email) => {
+  try {
+    const { sendPasswordResetEmail } = require('firebase/auth');
+    await sendPasswordResetEmail(firebase.auth, email);
+    return { ok: true };
+  } catch (err) {
+    console.error('Auth password reset error:', err.message);
+    return { error: err.message };
+  }
+});
+
 ipcMain.handle('auth:signOut', async () => {
   try {
     await firebase.signOut(firebase.auth);
@@ -2011,13 +2022,13 @@ ipcMain.handle('yt:downloadAudio', async (_event, videoUrl, quality, videoId) =>
       if (err) {
         // Clean up partial file left by --no-part after SIGTERM
         if (err.killed || err.signal === 'SIGTERM') {
-          const partial = fs.readdirSync(cacheDir).find(f => f.startsWith(videoId + '.'));
+          const partial = fs.existsSync(cacheDir) && fs.readdirSync(cacheDir).find(f => f.startsWith(videoId + '.'));
           if (partial) try { fs.unlinkSync(path.join(cacheDir, partial)); } catch (_) {}
           return reject('cancelled');
         }
         return reject(stderr?.trim() || err.message);
       }
-      const downloaded = fs.readdirSync(cacheDir).find(f => f.startsWith(videoId + '.'));
+      const downloaded = fs.existsSync(cacheDir) && fs.readdirSync(cacheDir).find(f => f.startsWith(videoId + '.'));
       if (!downloaded) return reject('Download completed but file not found');
       resolve({ path: path.join(cacheDir, downloaded) });
     });

@@ -2869,6 +2869,7 @@ body.audio-playing .track-row.playing .track-eq { display: flex; justify-content
 }
 .auth-buttons {
   display: flex;
+  align-items: center;
   gap: 10px;
 }
 .auth-error {
@@ -3081,6 +3082,22 @@ body.audio-playing .track-row.playing .track-eq { display: flex; justify-content
   border-color: var(--accent-border);
   background: var(--accent-dim);
 }
+.btn-welcome-forgot {
+  background: none;
+  border: none;
+  color: var(--text-subdued);
+  font-family: var(--font);
+  font-size: 12px;
+  cursor: pointer;
+  margin-top: 8px;
+  padding: 2px 0;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  transition: color var(--transition);
+}
+.btn-welcome-forgot:hover { color: var(--accent); }
+.btn-welcome-forgot:disabled { opacity: 0.5; cursor: default; }
+
 .btn-welcome-skip {
   margin-top: 24px;
   background: none;

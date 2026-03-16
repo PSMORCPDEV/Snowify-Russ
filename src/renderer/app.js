@@ -5612,8 +5612,34 @@ const cachedPath = prefetchCache.getCachedPath(track.id);
     const localTime = parseInt(localStorage.getItem('snowify_lastSave') || '0');
     const shouldApply = forceCloud || (cloud.updatedAt && cloud.updatedAt > localTime);
     if (shouldApply) {
+      // Preserve local-only tracks before cloud overwrites playlists/liked
+      const localTracksByPlaylist = new Map();
+      for (const p of state.playlists) {
+        const locals = p.tracks.filter(t => t.isLocal);
+        if (locals.length) localTracksByPlaylist.set(p.id, locals);
+      }
+      const localLiked = state.likedSongs.filter(t => t.isLocal);
+
       state.playlists = cloud.playlists || state.playlists;
       state.likedSongs = cloud.likedSongs || state.likedSongs;
+
+      // Re-inject local tracks into their playlists
+      for (const p of state.playlists) {
+        const locals = localTracksByPlaylist.get(p.id);
+        if (locals) {
+          const ids = new Set(p.tracks.map(t => t.id));
+          for (const lt of locals) {
+            if (!ids.has(lt.id)) p.tracks.push(lt);
+          }
+        }
+      }
+      if (localLiked.length) {
+        const likedIds = new Set(state.likedSongs.map(t => t.id));
+        for (const lt of localLiked) {
+          if (!likedIds.has(lt.id)) state.likedSongs.push(lt);
+        }
+      }
+
       state.recentTracks = cloud.recentTracks || state.recentTracks;
       state.followedArtists = cloud.followedArtists || state.followedArtists;
       state.volume = cloud.volume ?? state.volume;

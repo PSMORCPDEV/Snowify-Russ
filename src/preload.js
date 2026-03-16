@@ -139,6 +139,9 @@ contextBridge.exposeInMainWorld('snowify', {
   onDeepLink: (cb) => ipcRenderer.on('app:deepLink', (_e, data) => cb(data)),
   getPendingDeepLink: () => ipcRenderer.invoke('app:getPendingDeepLink'),
 
+  // Local audio
+  pickAudioFiles: () => ipcRenderer.invoke('local:pickAudioFiles'),
+
   // Track info (for deep links)
   getTrackInfo: (videoId) => ipcRenderer.invoke('yt:getTrackInfo', videoId),
 

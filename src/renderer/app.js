@@ -348,6 +348,7 @@
   const SIDEBAR_PLAY_SVG = '<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7L8 5z"/></svg>';
   const SIDEBAR_PAUSE_SVG = '<svg viewBox="0 0 24 24"><path d="M6 4h4v16H6V4zm8 0h4v16h-4V4z"/></svg>';
   const ICON_BROKEN_HEART = '<svg width="20" height="20" viewBox="0 0 24 24" fill="var(--accent)"><path d="M2 8.5C2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09V21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5z"/><path d="M12 5.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35V5.09z" transform="translate(1.5, 2) rotate(8, 12, 12)"/></svg>';
+  const LOCAL_THUMB_FALLBACK = 'data:image/svg+xml,' + encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120" viewBox="0 0 24 24" fill="none"><rect width="24" height="24" rx="4" fill="%231e1e2e"/><path d="M12 3v10.55A4 4 0 1 0 14 17V7h4V3h-6z" fill="%23888"/></svg>');
 
   function closeSuggestions() {
     searchSuggestions.classList.add('hidden');
@@ -816,9 +817,9 @@
             </span>
           </div>
           <div class="track-main">
-            <img class="track-thumb" src="${escapeHtml(track.thumbnail)}" alt="" loading="lazy" />
+            <img class="track-thumb" src="${escapeHtml(track.thumbnail || (track.isLocal ? LOCAL_THUMB_FALLBACK : ''))}" alt="" loading="lazy" />
             <div class="track-details">
-              <div class="track-title">${escapeHtml(track.title)}</div>
+              <div class="track-title">${escapeHtml(track.title)}${track.isLocal ? '<span class="local-badge">LOCAL</span>' : ''}</div>
             </div>
           </div>
           <div class="track-artist-col">${renderArtistLinks(track)}</div>
@@ -939,6 +940,7 @@
   function showContextMenu(e, track, { hideAddQueue = false, hidePlayNext = false } = {}) {
     removeContextMenu();
     const isLiked = state.likedSongs.some(t => t.id === track.id);
+    const isLocal = !!track.isLocal;
     const menu = document.createElement('div');
     menu.className = 'context-menu';
     menu.style.left = e.clientX + 'px';
@@ -953,12 +955,11 @@
       ${playNextHtml}
       ${addQueueHtml}
       <div class="context-menu-divider"></div>
-      <div class="context-menu-item" data-action="start-radio">${I18n.t('context.startRadio')}</div>
-      <div class="context-menu-item" data-action="watch-video">${I18n.t('context.watchVideo')}</div>
+      ${isLocal ? '' : `<div class="context-menu-item" data-action="start-radio">${I18n.t('context.startRadio')}</div>`}
+      ${isLocal ? '' : `<div class="context-menu-item" data-action="watch-video">${I18n.t('context.watchVideo')}</div>`}
       <div class="context-menu-item" data-action="like">${isLiked ? I18n.t('context.unlike') : I18n.t('context.like')}</div>
       ${playlistSection}
-      <div class="context-menu-divider"></div>
-      <div class="context-menu-item" data-action="share">${I18n.t('context.copyLink')}</div>
+      ${isLocal ? '' : `<div class="context-menu-divider"></div><div class="context-menu-item" data-action="share">${I18n.t('context.copyLink')}</div>`}
     `;
 
     positionContextMenu(menu);
@@ -1184,6 +1185,10 @@
       if (usePreloaded) {
         const newAudio = engine.consumePreloaded(track.id);
         if (newAudio) audio = newAudio;
+      } else if (track.isLocal) {
+        const directUrl = pathToFileUrl(track.localPath);
+        engine.setSource(directUrl);
+        audio = engine.getActiveAudio();
       } else {
 const cachedPath = prefetchCache.getCachedPath(track.id);
         if (!cachedPath) showToast(I18n.t('toast.loadingTrack', { title: track.title }));
@@ -1252,7 +1257,7 @@ const cachedPath = prefetchCache.getCachedPath(track.id);
     const nextIdx = state.queueIndex + 1;
     if (nextIdx >= state.queue.length) return;
     const next = state.queue[nextIdx];
-    if (!next || !next.url && !next.id) return;
+    if (!next || next.isLocal || (!next.url && !next.id)) return;
     const url = next.url || `https://music.youtube.com/watch?v=${next.id}`;
     // Fire-and-forget: this populates the main-process cache
     window.snowify.getStreamUrl(url, state.audioQuality).catch(() => {});
@@ -1343,7 +1348,7 @@ const cachedPath = prefetchCache.getCachedPath(track.id);
 
   async function smartQueueFill({ silent = false } = {}) {
     const current = state.queue[state.queueIndex];
-    if (!current) return;
+    if (!current || current.isLocal) return;
 
     try {
       const queueIds = new Set(state.queue.map(t => t.id));
@@ -1450,7 +1455,7 @@ const cachedPath = prefetchCache.getCachedPath(track.id);
       artist: track.artist,
       thumbnail: track.thumbnail || '',
       startTimestamp: startMs,
-      videoId: track.id || ''
+      videoId: track.isLocal ? '' : (track.id || '')
     };
     if (durationMs) {
       data.endTimestamp = startMs + durationMs;
@@ -1473,8 +1478,8 @@ const cachedPath = prefetchCache.getCachedPath(track.id);
     window.snowify.updateSocialPresence({
       trackTitle: track.title || '',
       trackArtist: track.artist || '',
-      trackThumbnail: track.thumbnail || '',
-      trackId: track.id || '',
+      trackThumbnail: track.isLocal ? '' : (track.thumbnail || ''),
+      trackId: track.isLocal ? '' : (track.id || ''),
       isPlaying: true,
       isOnline: true,
       trackPosition: src ? src.currentTime || 0 : 0,
@@ -1520,8 +1525,8 @@ const cachedPath = prefetchCache.getCachedPath(track.id);
           const thumbs = (!cover && p.tracks.length > 0)
             ? p.tracks.slice(0, 4).map(t => t.thumbnail)
             : [];
-          // Include lightweight track data so friends can view/play
-          const tracks = p.tracks.map(t => ({
+          // Include lightweight track data so friends can view/play (exclude local files)
+          const tracks = p.tracks.filter(t => !t.isLocal).map(t => ({
             id: t.id,
             title: t.title,
             artist: t.artist,
@@ -1919,7 +1924,7 @@ const cachedPath = prefetchCache.getCachedPath(track.id);
     bar.dataset.trackArtist = track.artist || '';
     document.querySelector('#app').classList.remove('no-player');
 
-    $('#np-thumbnail').src = track.thumbnail;
+    $('#np-thumbnail').src = track.thumbnail || (track.isLocal ? LOCAL_THUMB_FALLBACK : '');
     const npTitle = $('#np-title');
     npTitle.textContent = track.title;
     if (track.albumId) {
@@ -2408,15 +2413,17 @@ const cachedPath = prefetchCache.getCachedPath(track.id);
       heroCover.style.background = hasCover ? '' : 'linear-gradient(135deg, #450af5, #8e2de2)';
     }
 
-    // Hide rename/delete/cover/public for Liked Songs
+    // Hide rename/delete/cover/public/import for Liked Songs
     const renameBtn = $('#btn-rename-playlist');
     const deleteBtn = $('#btn-delete-playlist');
     const coverBtn = $('#btn-cover-playlist');
     const exportBtn = $('#btn-export-playlist');
+    const importBtn = $('#btn-import-local');
     const publicBtn = $('#btn-toggle-public');
     renameBtn.style.display = isLiked ? 'none' : '';
     deleteBtn.style.display = isLiked ? 'none' : '';
     coverBtn.style.display = isLiked ? 'none' : '';
+    importBtn.style.display = isLiked ? 'none' : '';
     publicBtn.style.display = (isLiked || !_cloudUser) ? 'none' : '';
 
     // Init public toggle state
@@ -2504,6 +2511,27 @@ const cachedPath = prefetchCache.getCachedPath(track.id);
       if (ok) showToast(I18n.t('toast.playlistExported'));
     };
 
+    importBtn.onclick = async () => {
+      if (isLiked) return;
+      const tracks = await window.snowify.pickAudioFiles();
+      if (!tracks || !tracks.length) return;
+      let added = 0;
+      for (const t of tracks) {
+        if (!playlist.tracks.some(pt => pt.id === t.id)) {
+          playlist.tracks.push(t);
+          added++;
+        }
+      }
+      if (added) {
+        saveState();
+        renderPlaylists();
+        showPlaylistDetail(playlist, false);
+        showToast(`Added ${added} local file${added > 1 ? 's' : ''}`);
+      } else {
+        showToast('Files already in playlist');
+      }
+    };
+
     deleteBtn.onclick = () => {
       if (isLiked) return;
       if (confirm(I18n.t('playlist.confirmDelete', { name: playlist.name }))) {
@@ -2528,6 +2556,7 @@ const cachedPath = prefetchCache.getCachedPath(track.id);
     menu.style.top = e.clientY + 'px';
 
     const liked = state.likedSongs.some(t => t.id === track.id);
+    const isLocal = !!track.isLocal;
 
     menu.innerHTML = `
       <div class="context-menu-item" data-action="play">${I18n.t('context.play')}</div>
@@ -2535,13 +2564,12 @@ const cachedPath = prefetchCache.getCachedPath(track.id);
       <div class="context-menu-item" data-action="add-queue">${I18n.t('context.addToQueue')}</div>
       <div class="context-menu-divider"></div>
       <div class="context-menu-item" data-action="like">${liked ? I18n.t('context.unlike') : I18n.t('context.like')}</div>
-      <div class="context-menu-item" data-action="start-radio">${I18n.t('context.startRadio')}</div>
+      ${isLocal ? '' : `<div class="context-menu-item" data-action="start-radio">${I18n.t('context.startRadio')}</div>`}
       <div class="context-menu-divider"></div>
       <div class="context-menu-item" data-action="remove">${isLiked ? I18n.t('context.removeFromLiked') : I18n.t('context.removeFromPlaylist')}</div>
       ${!isLiked && idx > 0 ? `<div class="context-menu-item" data-action="move-up">${I18n.t('context.moveUp')}</div>` : ''}
       ${!isLiked && idx < playlist.tracks.length - 1 ? `<div class="context-menu-item" data-action="move-down">${I18n.t('context.moveDown')}</div>` : ''}
-      <div class="context-menu-divider"></div>
-      <div class="context-menu-item" data-action="share">${I18n.t('context.copyLink')}</div>
+      ${isLocal ? '' : `<div class="context-menu-divider"></div><div class="context-menu-item" data-action="share">${I18n.t('context.copyLink')}</div>`}
     `;
 
     document.body.appendChild(menu);
@@ -5544,9 +5572,11 @@ const cachedPath = prefetchCache.getCachedPath(track.id);
     if (!_cloudUser || _cloudSyncPaused) return;
     clearTimeout(_cloudSaveTimeout);
     _cloudSaveTimeout = setTimeout(async () => {
+      // Strip local-only tracks from playlists/liked before cloud sync
+      const stripLocal = (tracks) => tracks.filter(t => !t.isLocal);
       const data = {
-        playlists: state.playlists,
-        likedSongs: state.likedSongs,
+        playlists: state.playlists.map(p => ({ ...p, tracks: stripLocal(p.tracks) })),
+        likedSongs: stripLocal(state.likedSongs),
         recentTracks: state.recentTracks,
         followedArtists: state.followedArtists,
         volume: state.volume,
@@ -5944,9 +5974,10 @@ const cachedPath = prefetchCache.getCachedPath(track.id);
 
   async function forceCloudSave() {
     if (!_cloudUser) return;
+    const stripLocal = (tracks) => tracks.filter(t => !t.isLocal);
     const data = {
-      playlists: state.playlists,
-      likedSongs: state.likedSongs,
+      playlists: state.playlists.map(p => ({ ...p, tracks: stripLocal(p.tracks) })),
+      likedSongs: stripLocal(state.likedSongs),
       recentTracks: state.recentTracks,
       followedArtists: state.followedArtists,
       volume: state.volume,
@@ -6720,6 +6751,8 @@ const cachedPath = prefetchCache.getCachedPath(track.id);
     if (coverBtn) coverBtn.style.display = 'none';
     if (exportBtn) exportBtn.style.display = 'none';
     if (publicBtn) publicBtn.style.display = 'none';
+    const importBtn = $('#btn-import-local');
+    if (importBtn) importBtn.style.display = 'none';
 
     // Render tracks
     state.currentPlaylistId = null; // Not a local playlist

@@ -1319,7 +1319,7 @@ ipcMain.handle('discord:updatePresence', async (_event, data) => {
       endTimestamp: data.endTimestamp ? new Date(data.endTimestamp) : undefined,
       buttons: [
         { label: 'Get Snowify', url: 'https://snowify.cc' },
-        ...(data.videoId ? [{ label: 'Listen on YT Music', url: `https://music.youtube.com/watch?v=${data.videoId}` }] : [])
+        ...(data.videoId ? [{ label: 'Listen on Snowify', url: `https://snowify.cc/track/${data.videoId}` }] : [])
       ],
       instance: false
     });
@@ -2713,6 +2713,53 @@ ipcMain.handle('playlist:deleteImage', async (_event, imagePath) => {
     console.error('Delete cover image error:', err);
     return false;
   }
+});
+
+// ─── Local Audio ───
+
+const mm = require('music-metadata');
+
+ipcMain.handle('local:pickAudioFiles', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: 'Import local audio files',
+    filters: [{ name: 'Audio', extensions: ['mp3', 'flac', 'ogg', 'wav', 'aac', 'm4a', 'opus', 'wma', 'aiff'] }],
+    properties: ['openFile', 'multiSelections']
+  });
+  if (result.canceled || !result.filePaths.length) return [];
+
+  const tracks = [];
+  for (const filePath of result.filePaths) {
+    try {
+      const metadata = await mm.parseFile(filePath, { duration: true });
+      const common = metadata.common || {};
+      const title = common.title || path.basename(filePath, path.extname(filePath));
+      const artist = common.artist || 'Unknown Artist';
+      const album = common.album || '';
+      const durationMs = metadata.format?.duration ? Math.round(metadata.format.duration * 1000) : 0;
+
+      // Extract embedded cover art as base64 data URI
+      let thumbnail = '';
+      const pic = common.picture?.[0];
+      if (pic) {
+        const mime = pic.format || 'image/jpeg';
+        thumbnail = `data:${mime};base64,${pic.data.toString('base64')}`;
+      }
+
+      tracks.push({
+        id: 'local_' + Buffer.from(filePath).toString('base64url'),
+        title,
+        artist,
+        album,
+        thumbnail,
+        durationMs,
+        isLocal: true,
+        localPath: filePath,
+      });
+    } catch (err) {
+      console.error('Failed to parse audio file:', filePath, err.message);
+    }
+  }
+  return tracks;
 });
 
 // ─── Auto Updater ───
